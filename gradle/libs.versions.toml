@@ -1,0 +1,28 @@
+[versions]
+findsecbugs = "1.14.0"
+hamcrest = "3.0"
+jacoco = "0.8.14"
+junit = "5.14.0"
+junit_launcher = "1.14.0"
+mockito = "5.20.0"
+spotbugs = "4.9.8"
+spotbugs_plugin = "6.4.4"
+
+[libraries]
+findsecbugs = { module = "com.h3xstream.findsecbugs:findsecbugs-plugin", version.ref = "findsecbugs" }
+hamcrest = { module = "org.hamcrest:hamcrest", version.ref = "hamcrest" }
+jacoco = { module = "org.jacoco:org.jacoco.agent", version.ref = "jacoco" }
+junit = { module = "org.junit.jupiter:junit-jupiter", version.ref = "junit" }
+junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
+junit-launcher = { module = "org.junit.platform:junit-platform-launcher", version.ref = "junit_launcher" }
+mockito-core = { module = "org.mockito:mockito-core", version.ref = "mockito" }
+mockito-junit = { module = "org.mockito:mockito-junit-jupiter", version.ref = "mockito" }
+spotbugs = { module = "com.github.spotbugs:spotbugs", version.ref = "spotbugs" }
+spotbugs-annotations = { module = "com.github.spotbugs:spotbugs-annotations", version.ref = "spotbugs" }
+
+[bundles]
+junit-tests = ["junit", "hamcrest", "mockito-core", "mockito-junit", "spotbugs-annotations"]
+junit-runtime = ["junit-launcher"]
+
+[plugins]
+spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs_plugin" }
