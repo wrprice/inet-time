@@ -11,10 +11,39 @@ import java.util.EnumSet;
 import java.util.Set;
 import java.util.function.Function;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 /// @author William R. Price
 public class InternetTimeUnitTest {
   private static final Set<InternetTimeUnit> UNITS = EnumSet.allOf(InternetTimeUnit.class);
+
+  @Test
+  void toMillis() {
+    assertEquals(86400, InternetTimeUnit.BEATS.toMillis(1), "1 beat");
+    assertEquals(864, InternetTimeUnit.CENTIBEATS.toMillis(1), "1 centibeat");
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "BEATS, 0, 0",
+    "BEATS, 1, 0",
+    "BEATS, 86399, 0",
+    "BEATS, 86400, 1",
+    "BEATS, 86401, 1",
+    "BEATS, 864000, 10",
+    "BEATS, 86400000, 1000",
+    "CENTIBEATS, 0, 0",
+    "CENTIBEATS, 1, 0",
+    "CENTIBEATS, 863, 0",
+    "CENTIBEATS, 864, 1",
+    "CENTIBEATS, 865, 1",
+    "CENTIBEATS, 86399, 99",
+    "CENTIBEATS, 86400, 100",
+  })
+  void fromMillis(InternetTimeUnit unit, long millis, long expectedUnits) {
+    assertEquals(expectedUnits, unit.fromMillis(millis));
+  }
 
   @Test
   void invariants() {

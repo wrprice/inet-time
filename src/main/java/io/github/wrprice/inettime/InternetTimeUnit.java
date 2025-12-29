@@ -51,11 +51,11 @@ public enum InternetTimeUnit implements TemporalUnit {
   }
 
   long fromMillis(long millis) {
-    return millis / durationAsMillis;
+    return Math.floorDiv(millis, durationAsMillis);
   }
 
   long toMillis(long unitValue) {
-    return unitValue * durationAsMillis;
+    return Math.multiplyExact(unitValue, durationAsMillis);
   }
 
   @Override

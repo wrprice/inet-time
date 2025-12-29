@@ -1,6 +1,7 @@
 package io.github.wrprice.inettime;
 
 import static io.github.wrprice.inettime.InternetTimeField.CENTIBEAT_OF_DAY;
+import static io.github.wrprice.inettime.InternetTimeField.MILLIS_PER_DAY;
 import static io.github.wrprice.inettime.InternetTimeUnit.*;
 import static java.time.temporal.ChronoField.*;
 import static java.util.Objects.requireNonNull;
@@ -62,6 +63,8 @@ public final /*value*/ class InternetTime
     this.centibeatOfDay = centibeats;
   }
 
+  // <editor-fold desc="Factory Methods" defaultstate="collapsed"> -------------------------------
+
   public static InternetTime now() {
     return now(Clock.systemUTC());
   }
@@ -94,6 +97,45 @@ public final /*value*/ class InternetTime
     return new InternetTime(dateTime.toLocalDate(), centibeats);
   }
 
+  // </editor-fold>
+
+  // <editor-fold desc="Alignment Methods" defaultstate="collapsed"> -----------------------------
+
+  @FunctionalInterface
+  private interface TemporalLongToObj<T> {
+    T apply(Temporal temporal, long value);
+  }
+
+  public static <R extends Temporal> R toStartOf(InternetTimeField field, R temporal) {
+    TemporalLongToObj<Temporal> factory;
+    long millis;
+    switch (requireNonNull(temporal, "temporal")) {
+      case InternetTime it when 0 == it.getCentibeatOfBeat() || CENTIBEAT_OF_DAY.equals(field) -> {
+        return temporal; // under these conditions, already aligned to the requested field
+      }
+      case Instant i -> {
+        long epochMillis = i.toEpochMilli();
+        long millisOfDay = epochMillis % MILLIS_PER_DAY;
+        millis = epochMillis - millisOfDay + field.truncate(millisOfDay);
+        factory = (__, val) -> Instant.ofEpochMilli(val);
+      }
+      default -> {
+        if (!temporal.isSupported(MILLI_OF_DAY)) {
+          throw field.exceptionForUnsupported(temporal);
+        }
+        millis = field.truncate(temporal.getLong(MILLI_OF_DAY));
+        factory = MILLI_OF_DAY::adjustInto;
+      }
+    }
+    @SuppressWarnings("unchecked")
+    R r = (R) factory.apply(temporal, millis);
+    return r;
+  }
+
+  // </editor-fold>
+
+  // <editor-fold desc="Simple Instance Methods" defaultstate="collapsed"> -----------------------
+
   @Override
   public int hashCode() {
     return date.hashCode() * 31 + Integer.hashCode(centibeatOfDay);
@@ -119,31 +161,6 @@ public final /*value*/ class InternetTime
   @Override
   public String toString() {
     return String.format("%s @%03d.%02d", toLocalDate(), getBeat(), getCentibeatOfBeat());
-  }
-
-  public Instant toInstant() {
-    var dateEpochSecond = toLocalDate().toEpochSecond(LocalTime.MIDNIGHT, ZONE);
-    return Instant.ofEpochMilli(millisecondOfDay() + TimeUnit.SECONDS.toMillis(dateEpochSecond));
-  }
-
-  public OffsetDateTime toOffsetDateTime() {
-    return OffsetDateTime.of(toLocalDate(), toLocalTime(), ZONE);
-  }
-
-  public ZonedDateTime toZonedDateTime() {
-    return ZonedDateTime.of(toLocalDate(), toLocalTime(), ZONE);
-  }
-
-  public LocalDateTime toLocalDateTime() {
-    return LocalDateTime.of(toLocalDate(), toLocalTime());
-  }
-
-  public LocalDate toLocalDate() {
-    return date;
-  }
-
-  private LocalTime toLocalTime() {
-    return LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(millisecondOfDay()));
   }
 
   public int getYear() {
@@ -182,21 +199,38 @@ public final /*value*/ class InternetTime
     return CENTIBEATS.toMillis(centibeatOfDay);
   }
 
-  @Override
-  public boolean isSupported(TemporalUnit unit) {
-    return switch (unit) {
-      case null -> false;
-      case InternetTimeUnit __ -> true;
-      case ChronoUnit cu -> cu.ordinal() >= ChronoUnit.MILLIS.ordinal() && ANALOG.isSupported(cu);
-      default -> unit.isSupportedBy(this);
-    };
+  // </editor-fold>
+
+  // <editor-fold desc="Conversion Methods" defaultstate="collapsed"> ----------------------------
+
+  public Instant toInstant() {
+    var dateEpochSecond = toLocalDate().toEpochSecond(LocalTime.MIDNIGHT, ZONE);
+    return Instant.ofEpochMilli(millisecondOfDay() + TimeUnit.SECONDS.toMillis(dateEpochSecond));
   }
 
-  private void checkUnsupportedUnit(ChronoUnit unit) {
-    if (!isSupported(unit)) {
-      throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
-    }
+  public OffsetDateTime toOffsetDateTime() {
+    return OffsetDateTime.of(toLocalDate(), toLocalTime(), ZONE);
   }
+
+  public ZonedDateTime toZonedDateTime() {
+    return ZonedDateTime.of(toLocalDate(), toLocalTime(), ZONE);
+  }
+
+  public LocalDateTime toLocalDateTime() {
+    return LocalDateTime.of(toLocalDate(), toLocalTime());
+  }
+
+  public LocalDate toLocalDate() {
+    return date;
+  }
+
+  private LocalTime toLocalTime() {
+    return LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(millisecondOfDay()));
+  }
+
+  // </editor-fold>
+
+  // <editor-fold desc="TemporalAccessor Interface Methods" defaultstate="collapsed"> ------------
 
   @Override
   public boolean isSupported(TemporalField field) {
@@ -306,6 +340,26 @@ public final /*value*/ class InternetTime
     };
   }
 
+  // </editor-fold>
+
+  // <editor-fold desc="Temporal Interface Methods" defaultstate="collapsed"> --------------------
+
+  @Override
+  public boolean isSupported(TemporalUnit unit) {
+    return switch (unit) {
+      case null -> false;
+      case InternetTimeUnit __ -> true;
+      case ChronoUnit cu -> cu.ordinal() >= ChronoUnit.MILLIS.ordinal() && ANALOG.isSupported(cu);
+      default -> unit.isSupportedBy(this);
+    };
+  }
+
+  private void checkUnsupportedUnit(ChronoUnit unit) {
+    if (!isSupported(unit)) {
+      throw new UnsupportedTemporalTypeException("Unsupported unit: " + unit);
+    }
+  }
+
   @Override
   public long until(Temporal endExclusive, TemporalUnit unit) {
     requireNonNull(endExclusive, "endExclusive");
@@ -382,6 +436,18 @@ public final /*value*/ class InternetTime
     return unit.addTo(this, amount);
   }
 
-  // TODO: format helper methods
-  // TODO: parse helper methods?
+  // </editor-fold>
+
+  // <editor-fold desc="Formatting Convenience Methods" defaultstate="collapsed"> ----------------
+
+  // TODO!
+
+  // </editor-fold>
+
+  // <editor-fold desc="Parsing Convenience Methods" defaultstate="collapsed"> -------------------
+
+  // TODO!
+
+  // </editor-fold>
+
 }

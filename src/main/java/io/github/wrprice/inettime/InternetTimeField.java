@@ -42,7 +42,7 @@ public enum InternetTimeField implements TemporalField {
   private static final long MAX_MILLI_OF_DAY =
       ChronoField.MILLI_OF_DAY.range().getMaximum();
 
-  private static final long MILLIS_PER_DAY = MAX_MILLI_OF_DAY + 1;
+  static final long MILLIS_PER_DAY = MAX_MILLI_OF_DAY + 1;
 
   private static final long INET_UTC_OFFSET_MILLIS =
       SECONDS.toMillis(InternetTime.ZONE.getTotalSeconds());
@@ -112,8 +112,12 @@ public enum InternetTimeField implements TemporalField {
 
   private void throwIfNotSupported(TemporalAccessor temporal) {
     if (!isSupportedBy(requireNonNull(temporal, "temporal"))) {
-      throw new UnsupportedTemporalTypeException(temporal.getClass() + " does not support " + this);
+      throw exceptionForUnsupported(temporal);
     }
+  }
+
+  DateTimeException exceptionForUnsupported(TemporalAccessor ta) {
+    return new UnsupportedTemporalTypeException(ta.getClass() + " does not support " + this);
   }
 
   /// {@return equivalent to [#range()]}  *Internet Time* field ranges do not vary by date nor
@@ -162,15 +166,15 @@ public enum InternetTimeField implements TemporalField {
 
   private long toNormalizedMilliOfDay(TemporalAccessor temporal, long utcOffsetSecs) {
     long milliOfDay = ChronoField.MILLI_OF_DAY.getFrom(temporal);
-    milliOfDay -= SECONDS.toMillis(utcOffsetSecs); // removes offset from UTC --> UTC
-    milliOfDay += INET_UTC_OFFSET_MILLIS; // UTC --> INet Time
+    milliOfDay = Math.subtractExact(milliOfDay, SECONDS.toMillis(utcOffsetSecs)); // to UTC
+    milliOfDay = Math.addExact(milliOfDay, INET_UTC_OFFSET_MILLIS); // UTC --> INet Time
     return wrapMilliOfDay(milliOfDay);
   }
 
   private long toOffsetMilliOfDay(long normalizedMillisOfDay, long utcOffsetSecs) {
     long milliOfDay = normalizedMillisOfDay;
-    milliOfDay -= INET_UTC_OFFSET_MILLIS; // INet Time --> UTC
-    milliOfDay += SECONDS.toMillis(utcOffsetSecs); // UTC --> add desired offset
+    milliOfDay = Math.subtractExact(milliOfDay, INET_UTC_OFFSET_MILLIS); // INet Time --> UTC
+    milliOfDay = Math.addExact(milliOfDay, SECONDS.toMillis(utcOffsetSecs)); // UTC -> wanted offset
     return wrapMilliOfDay(milliOfDay);
   }
 
@@ -183,5 +187,11 @@ public enum InternetTimeField implements TemporalField {
     }
     assert value >= 0 && value <= MAX_MILLI_OF_DAY;
     return value;
+  }
+
+  long truncate(long millisOfDay) {
+    var result = unit.toMillis(unit.fromMillis(millisOfDay));
+    assert ChronoField.MILLI_OF_DAY.range().checkValidValue(result, this) >= 0;
+    return result;
   }
 }
