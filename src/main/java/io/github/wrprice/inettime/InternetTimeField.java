@@ -6,6 +6,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.Objects.requireNonNull;
 
 import java.time.DateTimeException;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime; // for Javadoc reference
 import java.time.temporal.*;
@@ -27,12 +28,12 @@ import java.util.Locale;
 ///
 /// @author William R. Price
 public enum InternetTimeField implements TemporalField {
-  /// The **.beat** of the day, or the number of *millidays* since midnight.
+  /// The **.beat** of the day, or the number of *millidays* since UTC+1 midnight.
   ///
   /// Counts the *.beat* within the day, from 0 to (1,000 - 1).
   BEAT_OF_DAY("BeatOfDay", BEATS, 999),
 
-  /// The [centibeats][InternetTimeUnit#CENTIBEATS] elapsed since midnight.
+  /// The [centibeats][InternetTimeUnit#CENTIBEATS] elapsed since UTC+1 midnight.
   ///
   /// Counts the *centibeats* within the day, from 0 to (100,000 - 1).
   CENTIBEAT_OF_DAY("CentibeatOfDay", CENTIBEATS, 999_99),
@@ -40,6 +41,8 @@ public enum InternetTimeField implements TemporalField {
 
   private static final long MAX_MILLI_OF_DAY =
       ChronoField.MILLI_OF_DAY.range().getMaximum();
+
+  private static final long MILLIS_PER_DAY = MAX_MILLI_OF_DAY + 1;
 
   private static final long INET_UTC_OFFSET_MILLIS =
       SECONDS.toMillis(InternetTime.ZONE.getTotalSeconds());
@@ -97,10 +100,14 @@ public enum InternetTimeField implements TemporalField {
 
   @Override
   public boolean isSupportedBy(TemporalAccessor temporal) {
-    return temporal instanceof InternetTime
-        || (null != temporal
-            && ChronoField.MILLI_OF_DAY.isSupportedBy(temporal)
-            && ChronoField.OFFSET_SECONDS.isSupportedBy(temporal));
+    return switch (temporal) {
+      case InternetTime __ -> true;
+      case Instant __ -> true;
+      case null -> false;
+      default ->
+          ChronoField.MILLI_OF_DAY.isSupportedBy(temporal)
+              && ChronoField.OFFSET_SECONDS.isSupportedBy(temporal);
+    };
   }
 
   private void throwIfNotSupported(TemporalAccessor temporal) {
@@ -167,12 +174,14 @@ public enum InternetTimeField implements TemporalField {
     return wrapMilliOfDay(milliOfDay);
   }
 
-  private long wrapMilliOfDay(long value) {
+  static long wrapMilliOfDay(long value) {
     if (value < 0) {
-      value += MAX_MILLI_OF_DAY;
+      value %= MILLIS_PER_DAY;
+      value -= Long.signum(value) * MILLIS_PER_DAY;
     } else if (value > MAX_MILLI_OF_DAY) {
-      value -= MAX_MILLI_OF_DAY;
+      value %= MILLIS_PER_DAY;
     }
+    assert value >= 0 && value <= MAX_MILLI_OF_DAY;
     return value;
   }
 }
