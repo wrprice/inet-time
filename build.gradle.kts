@@ -49,18 +49,18 @@ tasks {
     }
 
     test {
-        jvmArgs.plus("-javaagent:${mockitoAgent.asPath}")
+        jvmArgs("-javaagent:${mockitoAgent.asPath}")
         finalizedBy("jacocoTestReport")
 
         testLogging {
-          events("failed", "skipped" /*, "passed"*/)
-          showExceptions = true
-          exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+            events("failed", "skipped" /*, "passed"*/)
+            showExceptions = true
+            exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         }
     }
 
     jacocoTestReport {
-      dependsOn("test")
+        dependsOn("test")
     }
 
     spotbugs {
@@ -91,24 +91,24 @@ tasks {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-  // Compile library for compatibility with Java 21 -- the earliest LTS with switch pattern support
-  options.compilerArgs.add("--release")
-  options.compilerArgs.add("21")
+    // Compile library for compatibility with Java 21 -- the earliest LTS w/ switch pattern support
+    options.compilerArgs.add("--release")
+    options.compilerArgs.add("21")
 
-  options.compilerArgs.add("-Xlint:all")
-  options.compilerArgs.add("--module-version")
-  options.compilerArgs.add("${project.version}")
+    options.compilerArgs.add("-Xlint:all")
+    options.compilerArgs.add("--module-version")
+    options.compilerArgs.add("${project.version}")
 }
 
 tasks.withType<Javadoc>().configureEach {
-  options {
-    // https://github.com/gradle/gradle/issues/7038
-    this as StandardJavadocDocletOptions // unsafe cast
-    // links("https://docs.gradle.org/4.9/javadoc/") // but now we can use all properties of StandardJavadocDocletOptions
-    // noQualifiers = listOf("all")
+    options {
+        // https://github.com/gradle/gradle/issues/7038
+        this as StandardJavadocDocletOptions // unsafe cast
+        // links("https://docs.gradle.org/4.9/javadoc/") // now we can use all props of StandardJavadocDocletOptions
+        // noQualifiers = listOf("all")
 
-    memberLevel = JavadocMemberLevel.PROTECTED
-    addBooleanOption("html5", true)
-    addBooleanOption("Xdoclint:all,-missing", true)
-  }
+        memberLevel = JavadocMemberLevel.PROTECTED
+        addBooleanOption("html5", true)
+        addBooleanOption("Xdoclint:all,-missing", true)
+    }
 }
