@@ -47,9 +47,9 @@ modularized, you can instead place the library directly in the legacy classpath.
 
 **value-based class `InternetTime`**  
 Acts as a hybrid of `Instant` and an `OffsetDateTime`, representing a specific moment globally,
-with a maximum resolution of one *centibeat* (<math><mfrac><mn>1</mn><mn>100,000</mn></mfrac></math>
-of a day), or 864ms. This is the primary API for most application development, and can be used
-where `Temporal` values are used in your other application code.  It provides factory methods and
+with a maximum resolution of one *centibeat* (1 / 100,000th of a nominal 24-hour day), or 864
+milliseconds.  This is the primary API for most application development, and can be used where
+`Temporal` values appear in your other application code.  It provides factory methods and
 convenient conversion operations to other Java Time API classes.
 
 **enum `InternetTimeField`**  
@@ -62,8 +62,8 @@ those standard value types, even if you cannot use `InternetTime` directly.
 An implementation of `TemporalUnit` representing the two time units introduced by *Internet Time*,
 which are:
 
-* `BEATS` (<math><mfrac><mn>1</mn><mn>1,000</mn></mfrac></math> of one day)
-* `CENTIBEATS` (<math><mfrac><mn>1</mn><mn>100</mn></mfrac></math> of one *.beat*)
+* `BEATS` (1 / 1,000th of a nominal 24-hour day)
+* `CENTIBEATS` (1 / 100th of one *.beat*)
 
 All public classes are final, immutable, and thread-safe.
 **For more detail, build and then open the API Javadoc.**
