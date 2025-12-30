@@ -2,6 +2,8 @@
 /// Includes JPMS module support and requires no dependencies other than a
 /// standard Java runtime environment.
 ///
+/// [Source code is available on GitHub](https://github.com/wrprice/inet-time)
+///
 /// ## Requirements
 ///
 /// 1. Java 21 or newer (uses patterns in `switch`)
