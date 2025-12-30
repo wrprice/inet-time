@@ -22,18 +22,17 @@ permissions:
 
 jobs:
   build:
+    runs-on: ubuntu-latest
+    continue-on-error: false
     strategy:
       fail-fast: false
       matrix:
         include:
-          - identifier: Java 25
-            jdk: '25'
-            primary_jdk: true
-          - identifier: Java 21
-            jdk: '21'
+          - jdk: '21'
 
-    runs-on: ubuntu-latest
-    continue-on-error: false
+          - jdk: '25'
+            artifacts: primary
+
     steps:
 
     - name: Checkout
@@ -53,22 +52,38 @@ jobs:
     - name: Build
       run: ./gradlew build
 
+    - name: Upload Binary Artifact
+      if: ${{ matrix.artifacts == 'primary' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: inet-time
+        path: ./build/libs/*.jar
+
+    - name: Upload API Documentation Artifact
+      if: ${{ matrix.artifacts == 'primary' }}
+      uses: actions/upload-artifact@v6
+      with:
+        name: javadoc
+        path: ./build/docs/javadoc
+        compression-level: 9
+
+    - name: Code Coverage
+      if: ${{ matrix.artifacts == 'primary' }}
+      uses: cicirello/jacoco-badge-generator@v2
+      with:
+        generate-branches-badge: true
+        jacoco-csv-file: build/reports/jacoco/test/jacocoTestReport.csv
+        intervals: 95, 90, 80, 70, 60, 0
+        workflow-summary-heading: Test Coverage Summary
+        fail-on-coverage-decrease: true
+        fail-on-branches-decrease: true
+        coverage-decrease-limit: 95
+        branches-decrease-limit: 90
+
     - name: Upload Reports Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
-          name: reports-jdk${{ matrix.jdk }}
-          path: ./build/reports/
-
-    - name: Upload API Documentation Artifact
-      if: ${{ matrix.primary_jdk }}
-      uses: actions/upload-artifact@v4
-      with:
-          name: javadoc
-          path: ./build/docs/javadoc
-
-    - name: Upload API Documentation Artifact
-      if: ${{ matrix.primary_jdk }}
-      uses: actions/upload-artifact@v4
-      with:
-          name: inet-time
-          path: ./build/libs/*.jar
+        name: reports${{ (matrix.artifacts != 'primary') && format('-jdk{0}', matrix.jdk) || '' }}
+        path: |
+          ./build/reports/
+          ./.github/badges/**
