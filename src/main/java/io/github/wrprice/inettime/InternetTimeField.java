@@ -143,7 +143,7 @@ public enum InternetTimeField implements TemporalField {
     return unit.fromMillis(toNormalizedMilliOfDay(temporal, utcOffsetSecs));
   }
 
-  // Internal support for InternetTime#ofInstant(Instant)
+  // Internal support for InternetTime#<init>(LocalDateTime) in (assumed) correct ZoneOffset
   long getFrom(LocalDateTime temporal, int utcOffsetSecs) {
     return unit.fromMillis(toNormalizedMilliOfDay(temporal, utcOffsetSecs));
   }

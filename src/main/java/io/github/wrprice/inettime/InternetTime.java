@@ -1,8 +1,8 @@
 package io.github.wrprice.inettime;
 
-import static io.github.wrprice.inettime.InternetTimeField.CENTIBEAT_OF_DAY;
-import static io.github.wrprice.inettime.InternetTimeField.MILLIS_PER_DAY;
+import static io.github.wrprice.inettime.InternetTimeField.*;
 import static io.github.wrprice.inettime.InternetTimeUnit.*;
+import static io.github.wrprice.inettime.PrivateField.CENTIBEAT_OF_BEAT;
 import static java.time.temporal.ChronoField.*;
 import static java.util.Objects.requireNonNull;
 
@@ -53,9 +53,10 @@ public final /*value*/ class InternetTime
   /// @serial
   private final int centibeatOfDay;
 
-  private InternetTime(OffsetDateTime withCorrectOffset) {
-    this(withCorrectOffset.toLocalDate(), (int) CENTIBEAT_OF_DAY.getFrom(withCorrectOffset));
-    assert ZONE.equals(withCorrectOffset.getOffset());
+  private InternetTime(LocalDateTime dateTimeInCorrectOffset) {
+    this(
+        dateTimeInCorrectOffset.toLocalDate(),
+        (int) CENTIBEAT_OF_DAY.getFrom(dateTimeInCorrectOffset, ZONE.getTotalSeconds()));
   }
 
   private InternetTime(LocalDate date, int centibeats) {
@@ -77,8 +78,8 @@ public final /*value*/ class InternetTime
     requireNonNull(accessor, "accessor");
     return switch (accessor) {
       case InternetTime it -> it;
-      case OffsetDateTime odt -> new InternetTime(odt.withOffsetSameInstant(ZONE));
-      case ZonedDateTime zdt -> ofInstant(zdt.toInstant());
+      case OffsetDateTime dt -> new InternetTime(dt.withOffsetSameInstant(ZONE).toLocalDateTime());
+      case ZonedDateTime dt -> new InternetTime(dt.withZoneSameInstant(ZONE).toLocalDateTime());
       default -> {
         try {
           yield ofInstant(Instant.from(accessor));
@@ -92,44 +93,29 @@ public final /*value*/ class InternetTime
   }
 
   public static InternetTime ofInstant(Instant instant) {
-    var dateTime = LocalDateTime.ofInstant(requireNonNull(instant, "instant"), ZONE);
-    var centibeats = (int) CENTIBEAT_OF_DAY.getFrom(dateTime, ZONE.getTotalSeconds());
-    return new InternetTime(dateTime.toLocalDate(), centibeats);
+    return new InternetTime(LocalDateTime.ofInstant(requireNonNull(instant, "instant"), ZONE));
   }
 
-  // </editor-fold>
-
-  // <editor-fold desc="Alignment Methods" defaultstate="collapsed"> -----------------------------
-
-  @FunctionalInterface
-  private interface TemporalLongToObj<T> {
-    T apply(Temporal temporal, long value);
+  public static InternetTime of(
+      int year, int month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset zone) {
+    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, zone);
   }
 
-  public static <R extends Temporal> R toStartOf(InternetTimeField field, R temporal) {
-    TemporalLongToObj<Temporal> factory;
-    long millis;
-    switch (requireNonNull(temporal, "temporal")) {
-      case InternetTime it when 0 == it.getCentibeatOfBeat() || CENTIBEAT_OF_DAY.equals(field) -> {
-        return temporal; // under these conditions, already aligned to the requested field
-      }
-      case Instant i -> {
-        long epochMillis = i.toEpochMilli();
-        long millisOfDay = epochMillis % MILLIS_PER_DAY;
-        millis = epochMillis - millisOfDay + field.truncate(millisOfDay);
-        factory = (__, val) -> Instant.ofEpochMilli(val);
-      }
-      default -> {
-        if (!temporal.isSupported(MILLI_OF_DAY)) {
-          throw field.exceptionForUnsupported(temporal);
-        }
-        millis = field.truncate(temporal.getLong(MILLI_OF_DAY));
-        factory = MILLI_OF_DAY::adjustInto;
-      }
+  public static InternetTime of(
+      int year, Month month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset zone) {
+    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, zone);
+  }
+
+  public static InternetTime of(LocalDate date, int beat, int hundredthsOfBeat, ZoneOffset offset) {
+    long msOfDay = beatsToMillisOfDay(beat, hundredthsOfBeat);
+    int adjustMs = 1000 * (offset.getTotalSeconds() - ZONE.getTotalSeconds());
+    long adjusted = msOfDay + adjustMs;
+    if (adjusted < 0) {
+      date = date.plusDays(1); // date in Biel will be the next day
+    } else if (adjusted >= MILLIS_PER_DAY) {
+      date = date.minusDays(1); // date in Biel will be the prior day
     }
-    @SuppressWarnings("unchecked")
-    R r = (R) factory.apply(temporal, millis);
-    return r;
+    return new InternetTime(date, CENTIBEATS_PER_BEAT * beat + hundredthsOfBeat);
   }
 
   // </editor-fold>
@@ -160,7 +146,12 @@ public final /*value*/ class InternetTime
 
   @Override
   public String toString() {
-    return String.format("%s @%03d.%02d", toLocalDate(), getBeat(), getCentibeatOfBeat());
+    int partialBeats = getCentibeatOfBeat();
+    if (0 == partialBeats) {
+      return String.format("%s@%03d", toLocalDate(), getBeat());
+    } else {
+      return String.format("%s@%03d.%02d", toLocalDate(), getBeat(), partialBeats);
+    }
   }
 
   public int getYear() {
@@ -201,7 +192,7 @@ public final /*value*/ class InternetTime
 
   // </editor-fold>
 
-  // <editor-fold desc="Conversion Methods" defaultstate="collapsed"> ----------------------------
+  // <editor-fold desc="Type Conversion Methods" defaultstate="collapsed"> -----------------------
 
   public Instant toInstant() {
     var dateEpochSecond = toLocalDate().toEpochSecond(LocalTime.MIDNIGHT, ZONE);
@@ -228,6 +219,73 @@ public final /*value*/ class InternetTime
     return LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(millisecondOfDay()));
   }
 
+  public OffsetTime toOffsetTime() {
+    return OffsetTime.of(toLocalTime(), ZONE);
+  }
+
+  public static OffsetTime timeOfBeat(int beats) {
+    return timeOfBeat(beats, 0);
+  }
+
+  public static OffsetTime timeOfBeat(int beats, int hundredthsOfBeat) {
+    long msOfDay = beatsToMillisOfDay(beats, hundredthsOfBeat);
+    int totalSec = (int) (msOfDay / 1000);
+    int hr = totalSec / 3600;
+    int min = (totalSec % 3600) / 60;
+    int sec = totalSec % 60;
+    int ms = (int) (msOfDay % 1000);
+    return OffsetTime.of(hr, min, sec, (int) TimeUnit.MILLISECONDS.toNanos(ms), ZONE);
+  }
+
+  private static long beatsToMillisOfDay(int beats, int centibeatsOfBeat) {
+    BEAT_OF_DAY.range().checkValidIntValue(beats, BEAT_OF_DAY);
+    CENTIBEAT_OF_BEAT.range().checkValidIntValue(centibeatsOfBeat, CENTIBEAT_OF_BEAT);
+    return BEATS.toMillis(beats) + CENTIBEATS.toMillis(centibeatsOfBeat);
+  }
+
+  // </editor-fold>
+
+  // <editor-fold desc="Alignment Methods" defaultstate="collapsed"> -----------------------------
+
+  public static <R extends Temporal> R toStartOf(InternetTimeField field, R temporal) {
+    requireNonNull(field, "field");
+    TemporalLongToObj<Temporal> factory;
+    long millis;
+    switch (requireNonNull(temporal, "temporal")) {
+      case InternetTime it when 0 == it.getCentibeatOfBeat() || CENTIBEAT_OF_DAY.equals(field) -> {
+        return temporal; // under these conditions, already aligned to the requested field
+      }
+      case Instant i -> {
+        long epochMillis = i.toEpochMilli();
+        long millisOfDay = epochMillis % MILLIS_PER_DAY;
+        millis = epochMillis - millisOfDay + field.truncate(millisOfDay);
+        factory = (__, val) -> Instant.ofEpochMilli(val);
+      }
+      default -> {
+        if (!temporal.isSupported(MILLI_OF_DAY)) {
+          throw field.exceptionForUnsupported(temporal);
+        }
+        millis = field.truncate(temporal.getLong(MILLI_OF_DAY));
+        factory = MILLI_OF_DAY::adjustInto;
+      }
+    }
+    @SuppressWarnings("unchecked")
+    R r = (R) factory.apply(temporal, millis);
+    return r;
+  }
+
+  public OffsetDateTime toNearestSecond() {
+    var odt = toOffsetDateTime();
+    long msOfDay = odt.get(MILLI_OF_DAY);
+    long remainder = msOfDay % 1000;
+    msOfDay += (Long.signum(499 - remainder) >>> 31) * 1000 - remainder;
+    if (msOfDay >= MILLIS_PER_DAY) {
+      odt = odt.plusSeconds(1);
+      msOfDay = 0;
+    }
+    return odt.with(MILLI_OF_DAY, msOfDay);
+  }
+
   // </editor-fold>
 
   // <editor-fold desc="TemporalAccessor Interface Methods" defaultstate="collapsed"> ------------
@@ -237,15 +295,8 @@ public final /*value*/ class InternetTime
     return switch (field) {
       case null -> false;
       case InternetTimeField __ -> true;
-      case ChronoField cf -> isSupported(cf);
+      case ChronoField cf -> ANALOG.isSupported(cf);
       default -> field.isSupportedBy(this);
-    };
-  }
-
-  private boolean isSupported(ChronoField field) {
-    return switch (field) {
-//      case MICRO_OF_DAY, MICRO_OF_SECOND, NANO_OF_DAY, NANO_OF_SECOND -> false;
-      default -> ANALOG.isSupported(field);
     };
   }
 
@@ -269,7 +320,6 @@ public final /*value*/ class InternetTime
 
   @Override
   public <R> R query(TemporalQuery<R> query) {
-    assert false : "TODO"; // see TemporalAccessor
     return Temporal.super.query(query);
   }
 
@@ -308,11 +358,11 @@ public final /*value*/ class InternetTime
 
       case HOUR_OF_DAY -> millisecondOfDay() / (60 * 60_000);
 
-      case CLOCK_HOUR_OF_DAY -> getFieldAsLong(HOUR_OF_DAY) + 1;
+      case CLOCK_HOUR_OF_DAY -> { var hr = getFieldAsLong(HOUR_OF_DAY); yield 0 == hr ? 24 : hr; }
 
       case HOUR_OF_AMPM -> getFieldAsLong(HOUR_OF_DAY) % 12;
 
-      case CLOCK_HOUR_OF_AMPM -> getFieldAsLong(HOUR_OF_AMPM) + 1;
+      case CLOCK_HOUR_OF_AMPM -> { var hr = getFieldAsLong(HOUR_OF_AMPM); yield 0 == hr ? 12 : hr; }
 
       case AMPM_OF_DAY -> {
         // if time is before (1ms before Noon) then signum will be -1, negated -> +1, and shift -> 0
@@ -367,7 +417,6 @@ public final /*value*/ class InternetTime
     OffsetDateTime endODT;
     try {
       endODT = switch (endExclusive) {
-        case OffsetDateTime odt -> odt;
         case ZonedDateTime zdt -> zdt.toOffsetDateTime();
         case InternetTime it -> it.toOffsetDateTime();
         default -> OffsetDateTime.from(endExclusive);
@@ -401,7 +450,7 @@ public final /*value*/ class InternetTime
     if (field instanceof ChronoField cf) {
       checkUnsupportedField(cf);
       // FUTURE: this could be better optimized, but I'm lazy for now
-      return new InternetTime(toOffsetDateTime().with(field, newValue));
+      return new InternetTime(toOffsetDateTime().with(field, newValue).toLocalDateTime());
     }
     return field.adjustInto(this, newValue);
   }
@@ -431,7 +480,7 @@ public final /*value*/ class InternetTime
     if (unit instanceof ChronoUnit cu) {
       checkUnsupportedUnit(cu);
       // FUTURE: this could be better optimized, but I'm lazy for now
-      return new InternetTime(toOffsetDateTime().plus(amount, unit));
+      return new InternetTime(toOffsetDateTime().plus(amount, unit).toLocalDateTime());
     }
     return unit.addTo(this, amount);
   }
@@ -450,4 +499,8 @@ public final /*value*/ class InternetTime
 
   // </editor-fold>
 
+  @FunctionalInterface
+  private interface TemporalLongToObj<T> {
+    T apply(Temporal temporal, long value);
+  }
 }
