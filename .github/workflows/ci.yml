@@ -1,0 +1,41 @@
+# see: https://help.github.com/actions/language-and-framework-guides/building-and-testing-java-with-gradle
+
+name: Gradle Java CI
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        jdk: ['21', '25']
+        os: ['ubuntu-latest']
+        fail_ok: [false]
+
+    runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.fail_ok }}
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v5
+
+    - name: Java Setup
+      uses: actions/setup-java@v4
+      with:
+        java-version: ${{ matrix.jdk }}
+        distribution: 'temurin'
+
+    - name: Gradle Setup
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-encryption-key: ${{ secrets.GRADLE_ENCRYPTION_KEY }}
+
+    - name: Build
+      run: ./gradlew build
