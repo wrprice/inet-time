@@ -60,6 +60,9 @@ tasks {
     }
 
     jacocoTestReport {
+        reports {
+            csv.required = true
+        }
         dependsOn("test")
     }
 
