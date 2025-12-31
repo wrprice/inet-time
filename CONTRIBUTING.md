@@ -27,11 +27,12 @@ Please read the relevant sections below before making a contribution.
   - [Commit Messages](#commit-messages)
 - [Join The Project Team](#join-the-project-team)
 
+[javadoc]:https://javadoc.io/doc/io.github.wrprice/inet-time
 
 
 ## I Have a Question
 
-> If you want to ask a question, we assume that you have read the available [Documentation]().
+> If you want to ask a question, we assume that you have read the available [Documentation][javadoc].
 
 Before you ask a question, it is best to search for existing
 [Issues](https://github.com/wrprice/inet-time/issues) that might help you.
@@ -68,7 +69,7 @@ potential bug as fast as possible.
 
 - Make sure that you are using the latest version.
 - Determine if your bug is really a bug and not an error on your side e.g. using incompatible
-  environment components/versions (Make sure that you have read the [documentation]().
+  environment components/versions (Make sure that you have read the [documentation][javadoc].
   If you are looking for support, you might want to check [this section](#i-have-a-question)).
 - To see if other users have experienced (and potentially already solved) the same issue you
   are having, check if there is not already a bug report existing for your bug or error in the
@@ -122,7 +123,7 @@ suggestion and find related suggestions.
 #### Before Submitting an Enhancement
 
 - Make sure that you are using the latest version.
-- Read the [documentation]() carefully and find out if the functionality is already covered,
+- Read the [documentation][javadoc] carefully and find out if the functionality is already covered,
   maybe by an individual configuration.
 - Perform a [search](https://github.com/wrprice/inet-time/issues) to see if the enhancement
   has already been suggested. If it has, add a comment to the existing issue instead of

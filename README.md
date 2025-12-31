@@ -5,10 +5,15 @@ introduced by Swatch&reg; Ltd. in 1998, interoperable with the modern *Java Time
 
 [![Project Language](https://img.shields.io/github/languages/top/wrprice/inet-time)](https://openjdk.org/)
 [![Project License](https://img.shields.io/github/license/wrprice/inet-time)](LICENSE)
+[![Maven Central Version](https://img.shields.io/maven-central/v/io.github.wrprice/inet-time)][central]
+[![API Documentation](https://javadoc.io/badge2/io.github.wrprice/inet-time/javadoc.svg)][javadoc]
 [![Build Status](https://img.shields.io/github/actions/workflow/status/wrprice/inet-time/.github%2Fworkflows%2Fci.yml)](#)
 [![Test Instruction Coverage](.github/badges/jacoco.svg)](#)
 [![Test Branch Coverage](.github/badges/branches.svg)](#)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11673/badge)](https://www.bestpractices.dev/projects/11673)
+
+[central]: https://central.sonatype.com/artifact/io.github.wrprice/inet-time/versions
+[javadoc]: https://javadoc.io/doc/io.github.wrprice/inet-time
 
 
 ## Requirements
@@ -48,6 +53,12 @@ its widespread adoption was doomed to fail.
 
 ## How to Use
 
+Download using your build or package management tooling from [Maven Central][central]:
+
+| Group               | Artifact ID | Version  |
+| ------------------- | ----------- | -------- |
+| `io.github.wrprice` | `inet-time` | `0.4.20` |
+
 This library supports the Java module system and exports its public classes from a single package
 named the same as the module itself: `io.github.wrprice.inettime`.  If your project is *not*
 modularized, you can instead place the library directly in the legacy classpath.
@@ -73,10 +84,10 @@ which are:
 * `CENTIBEATS` (1 / 100th of one *.beat*)
 
 All public classes are final, immutable, and thread-safe.
-**For more detail, build and then open the API Javadoc.**
+**For more detail, build or [browse][javadoc] the API Javadoc.**
 
 
-## Development
+## How to Build and Develop locally
 
 To build this library locally, you will need a modern version of Java (21+) and the
 Gradle build tool (a "wrapper" script and small bootstrap library is included in the
@@ -97,7 +108,7 @@ Run the tests:
 ./gradlew test
 ```
 
-Build the API documentation:  
+Build local API documentation:
 ```bash
 ./gradlew javadoc
 ```

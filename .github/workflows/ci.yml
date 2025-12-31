@@ -58,6 +58,7 @@ jobs:
       with:
         name: inet-time
         path: ./build/libs/*.jar
+        retention-days: 10
 
     - name: Upload API Documentation Artifact
       if: ${{ matrix.artifacts == 'primary' }}
@@ -66,6 +67,7 @@ jobs:
         name: javadoc
         path: ./build/docs/javadoc
         compression-level: 9
+        retention-days: 10
 
     - name: Code Coverage
       if: ${{ matrix.artifacts == 'primary' }}
