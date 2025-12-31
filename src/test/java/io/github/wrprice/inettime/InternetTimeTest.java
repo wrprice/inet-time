@@ -214,7 +214,7 @@ public class InternetTimeTest {
 
   @Test
   void ofLocalDateBeatOffset() {
-    var dateTime = LocalDateTime.now();
+    var dateTime = LocalDateTime.of(2025, Month.DECEMBER, 30, 19, 21, 42);
     var odt1 = OffsetDateTime.of(dateTime, ZoneOffset.ofHours(-12));
     var odt2 = odt1.atZoneSameInstant(ZoneOffset.ofHours(+4));
     it = InternetTime.of(odt1.toLocalDate(), 999, 99, odt1.getOffset());
@@ -534,7 +534,7 @@ public class InternetTimeTest {
             case OFFSET_SECONDS -> 3600;
             case MICRO_OF_DAY -> 0;
             case NANO_OF_SECOND, NANO_OF_DAY, MICRO_OF_SECOND, MILLI_OF_SECOND, MILLI_OF_DAY,
-                SECOND_OF_DAY, SECOND_OF_MINUTE ->
+                SECOND_OF_DAY, SECOND_OF_MINUTE, INSTANT_SECONDS ->
                     InternetTime.toStartOf(
                         CENTIBEAT_OF_DAY,
                         offsetDateTime.with(f, newValue)
