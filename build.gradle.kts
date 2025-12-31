@@ -2,6 +2,7 @@ plugins {
     `java-library`
     `jacoco`
     alias(libs.plugins.spotbugs)
+    alias(libs.plugins.vanniktech.maven.publish)
 }
 
 import com.github.spotbugs.snom.Confidence
@@ -36,6 +37,45 @@ testing {
     suites {
         val test by getting(JvmTestSuite::class) {
             useJUnitJupiter("5.12.1")
+        }
+    }
+}
+
+val group: String by project
+val artifactId: String by project
+val version: String by project
+val isRelease: String by project
+val publishVersion: String by extra { version + (if (isRelease.toBoolean()) "" else "-SNAPSHOT") }
+mavenPublishing {
+    signAllPublications()
+    publishToMavenCentral(automaticRelease=false)
+    coordinates(group, artifactId, publishVersion)
+    configureBasedOnAppliedPlugins()
+
+    pom {
+        name.set(project.description)
+        description.set("Value, unit, and field types supporting .Beats with the Java Time API")
+        inceptionYear.set("2025")
+        url.set("https://github.com/wrprice/inet-time")
+
+        licenses {
+            license {
+                name.set("Apache-2.0")
+                url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                distribution.set("repo")
+            }
+        }
+        developers {
+          developer {
+            id.set("wrprice")
+            name.set("William R. Price")
+            url.set("https://github.com/wrprice")
+          }
+        }
+        scm {
+          url.set("https://github.com/wrprice/inet-time")
+          connection.set("scm:git:git://github.com/wrprice/inet-time.git")
+          developerConnection.set("scm:git:ssh://git@github.com/wrprice/inet-time.git")
         }
     }
 }

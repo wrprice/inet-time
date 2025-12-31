@@ -7,6 +7,7 @@ junit_launcher = "1.14.0"
 mockito = "5.20.0"
 spotbugs = "4.9.8"
 spotbugs_plugin = "6.4.4"
+vanniktech_plugin = "0.35.0"
 
 [libraries]
 findsecbugs = { module = "com.h3xstream.findsecbugs:findsecbugs-plugin", version.ref = "findsecbugs" }
@@ -26,3 +27,4 @@ junit-runtime = ["junit-launcher"]
 
 [plugins]
 spotbugs = { id = "com.github.spotbugs", version.ref = "spotbugs_plugin" }
+vanniktech-maven-publish = { id = "com.vanniktech.maven.publish", version.ref = "vanniktech_plugin" }

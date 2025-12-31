@@ -110,6 +110,8 @@ Build the API documentation:
   - Follow existing code style and formatting
   - Include descriptive commit messages and a PR description
 
+Read more details in [CONTRIBUTING.md](CONTRIBUTING.md)
+
 
 ## License
 
