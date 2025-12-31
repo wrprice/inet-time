@@ -3,11 +3,12 @@
 A small, dependency-free Java module/library implementing the late 1990s *Internet Time* standard
 introduced by Swatch&reg; Ltd. in 1998, interoperable with the modern *Java Time API* (`java.time`).
 
-![Project Language](https://img.shields.io/github/languages/top/wrprice/inet-time)
-![Project License](https://img.shields.io/github/license/wrprice/inet-time)
-![Build Status](https://img.shields.io/github/actions/workflow/status/wrprice/inet-time/.github%2Fworkflows%2Fci.yml)
-![Test Instruction Coverage](.github/badges/jacoco.svg)
-![Test Branch Coverage](.github/badges/branches.svg)
+[![Project Language](https://img.shields.io/github/languages/top/wrprice/inet-time)](https://openjdk.org/)
+[![Project License](https://img.shields.io/github/license/wrprice/inet-time)](LICENSE)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/wrprice/inet-time/.github%2Fworkflows%2Fci.yml)](#)
+[![Test Instruction Coverage](.github/badges/jacoco.svg)](#)
+[![Test Branch Coverage](.github/badges/branches.svg)](#)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11673/badge)](https://www.bestpractices.dev/projects/11673)
 
 
 ## Requirements
