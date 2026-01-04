@@ -9,23 +9,17 @@
 # the `language` matrix defined below to confirm you have the correct set of
 # supported CodeQL languages.
 #
-name: "CodeQL"
+name: "CodeQL for Actions"
 
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - .github/**
-      - .git*
-      - "**/*.md"
-      - "**/*.txt"
+    paths:
+      - .github/workflows/**
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - .github/**
-      - .git*
-      - "**/*.md"
-      - "**/*.txt"
+    paths:
+      - .github/workflows/**
   schedule:
     - cron: '45 18 * * 3'
 
@@ -53,8 +47,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - language: java-kotlin
-          build-mode: autobuild # This mode only analyzes Java. Set this to 'autobuild' or 'manual' to analyze Kotlin too.
+        - language: actions
+          build-mode: none
         # CodeQL supports the following values keywords for 'language': 'actions', 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'rust', 'swift'
         # Use `c-cpp` to analyze code written in C, C++ or both
         # Use 'java-kotlin' to analyze code written in Java, Kotlin or both

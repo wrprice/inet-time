@@ -4,18 +4,18 @@ name: Gradle Java CI
 on:
   push:
     branches: [ "main" ]
-    path-ignore:
+    paths-ignore:
       - .github/badges/**
-      - '*.git*'
-      - '*.md'
-      - '*.txt'
+      - .git*
+      - "*.md"
+      - "*.txt"
   pull_request:
     branches: [ "main" ]
-    path-ignore:
+    paths-ignore:
       - .github/**
-      - '*.git*'
-      - '*.md'
-      - '*.txt'
+      - .git*
+      - "*.md"
+      - "*.txt"
 
 permissions:
   contents: read
@@ -92,6 +92,7 @@ jobs:
 
   update-badges:
     needs: build
+    if: github.event_name == 'push' && success()
     runs-on: ubuntu-latest
     continue-on-error: false
     permissions:
