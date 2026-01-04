@@ -22,9 +22,13 @@ import static java.util.Objects.requireNonNull;
 
 import java.io.Serial;
 import java.io.Serializable;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.time.*;
+import java.time.format.*;
 import java.time.temporal.*;
 import java.util.concurrent.TimeUnit;
+import java.util.function.UnaryOperator;
 
 /// Represents a global instant according to the *Swatch&reg; Internet Time* standard:
 /// a date-time with a *fixed offset* from <abbr title="Coordinated Universal Time">UTC</abbr>
@@ -78,6 +82,12 @@ import java.util.concurrent.TimeUnit;
 /// in non-*Internet Time* zones with different offsets.  These values are useful for time display
 /// purposes where the date context (if any) is handled separately.
 ///
+/// ## Formatting & Parsing
+///
+/// Immutable, thread-safe formatters (which also support parsing operations) in a select number of
+/// predefined formats are available as `static final` fields on this class.  To build your own
+/// custom format involving *.beats*, see the [#beatFormatter] method.
+///
 /// -----
 ///
 /// **Implementation notes:**  
@@ -97,6 +107,94 @@ public final /*value*/ class InternetTime
   /// Fixed-offset zone based on the location of Swatch's headquarters in Biel, Switzerland.
   /// Can also be used as a [ZoneId].
   public static final ZoneOffset ZONE = ZoneOffset.ofHours(+1);
+
+  /// Used to access array elements of type `DateTimeFormatter` with `volatile` semantics.
+  /// @see #TIME_FORMATTERS_BY_STYLE
+  private static final VarHandle DATETIMEFORMAT_ARRAY_VARHANDLE =
+      MethodHandles.arrayElementVarHandle(DateTimeFormatter[].class);
+
+  /// Holds reusable time-only formatters for each [FormatStyle#ordinal()].
+  /// @see #beatFormatter(FormatStyle)
+  private static final DateTimeFormatter[] TIME_FORMATTERS_BY_STYLE =
+      new DateTimeFormatter[FormatStyle.values().length];
+
+  /// ISO-style local date-time formatter and parser with Internet Time *.beats*
+  /// but without any zone or offset: `2025-12-31 @567`
+  ///
+  /// The format consists of:
+  ///
+  /// - The [ISO_LOCAL_DATE][DateTimeFormatter#ISO_LOCAL_DATE]
+  /// - A space (ASCII 0x20)
+  /// - [beatFormatter(MEDIUM)][#beatFormatter(FormatStyle)], which is:
+  ///     - The `@` symbol
+  ///     - Three digits, zero-padded, for the number of whole *.beats* since Internet Time midnight
+  public static final DateTimeFormatter LOCAL_DATE_BEATS =
+      joinFormats(DateTimeFormatter.ISO_LOCAL_DATE, beatFormatter(FormatStyle.MEDIUM));
+
+  /// ISO-style local date-time formatter and parser with Internet Time fractional *.beats*
+  /// but without any zone or offset: `2025-12-31 @567.89`
+  ///
+  /// The format consists of:
+  ///
+  /// - The [ISO_LOCAL_DATE][DateTimeFormatter#ISO_LOCAL_DATE]
+  /// - A space (ASCII 0x20)
+  /// - [beatFormatter(FULL)][#beatFormatter(FormatStyle)], which is:
+  ///     - The `@` symbol
+  ///     - Three digits, zero-padded, for the number of whole *.beats* since Internet Time midnight
+  ///     - The `.` symbol
+  ///     - Two digits, zero-padded, for the fractional part of the current *.beat*.
+  public static final DateTimeFormatter LOCAL_DATE_CENTIBEATS =
+      joinFormats(DateTimeFormatter.ISO_LOCAL_DATE, beatFormatter(FormatStyle.FULL));
+
+  /// ISO-style date-time formatter and parser with Internet Time *.beats*
+  /// and an ISO-8601 extended offset date from UTC: `2025-12-31+01:00 @567`
+  ///
+  /// The format consists of:
+  ///
+  /// - The [ISO_OFFSET_DATE][DateTimeFormatter#ISO_OFFSET_DATE]
+  /// - A space (ASCII 0x20)
+  /// - [beatFormatter(MEDIUM)][#beatFormatter(FormatStyle)], which is:
+  ///     - The `@` symbol
+  ///     - Three digits, zero-padded, for the number of whole *.beats* since Internet Time midnight
+  public static final DateTimeFormatter OFFSET_DATE_BEATS =
+      joinFormats(DateTimeFormatter.ISO_OFFSET_DATE, beatFormatter(FormatStyle.MEDIUM));
+
+  /// ISO-style date-time formatter and parser with Internet Time fractional *.beats*
+  /// and an ISO-8601 extended offset date from UTC: `2025-12-31+01:00 @567.89`
+  ///
+  /// The format consists of:
+  ///
+  /// - The [ISO_OFFSET_DATE][DateTimeFormatter#ISO_OFFSET_DATE]
+  /// - A space (ASCII 0x20)
+  /// - [beatFormatter(FULL)][#beatFormatter(FormatStyle)], which is:
+  ///     - The `@` symbol
+  ///     - Three digits, zero-padded, for the number of whole *.beats* since Internet Time midnight
+  ///     - The `.` symbol
+  ///     - Two digits, zero-padded, for the fractional part of the current *.beat*.
+  public static final DateTimeFormatter OFFSET_DATE_CENTIBEATS =
+      joinFormats(DateTimeFormatter.ISO_OFFSET_DATE, beatFormatter(FormatStyle.FULL));
+
+  /// Late 1990s format seemingly preferred by Swatch&reg;, though not officially documented
+  /// as a standard: `d31.12.2025 @567.89`
+  ///
+  /// NOTE: Some historical examples used two(2)-digit years, which was short-sighted given that
+  /// *Y2K* was right around the corner and on many technologists' minds.  This format is configured
+  /// to always use four(4) digits for the year.  The date is local to *Internet Time* (UTC+1);
+  /// no UTC offset is shown.
+  private static final DateTimeFormatter RETRO_DATE_CENTIBEATS =
+      new DateTimeFormatterBuilder()
+          .optionalStart()
+          .appendLiteral('d')
+          .optionalEnd()
+          .appendValue(DAY_OF_MONTH, 2) // FUTURE: INET_DAY_OF_MONTH?
+          .appendLiteral('.')
+          .appendValue(MONTH_OF_YEAR, 2) // FUTURE: INET_MONTH_OF_YEAR?
+          .appendLiteral('.')
+          .appendValue(YEAR, 4) // FUTURE: INET_YEAR?
+          .appendLiteral(' ')
+          .append(beatFormatter(FormatStyle.FULL))
+          .toFormatter()
+          .withZone(ZONE); // zone override will throw if values used have the incorrect zone
 
   @Serial
   private static final long serialVersionUID = 202512271724L;
@@ -165,6 +263,8 @@ public final /*value*/ class InternetTime
       case InternetTime it -> it;
       case OffsetDateTime dt -> new InternetTime(dt.withOffsetSameInstant(ZONE).toLocalDateTime());
       case ZonedDateTime dt -> new InternetTime(dt.withZoneSameInstant(ZONE).toLocalDateTime());
+      case TemporalAccessor ta when
+          DateTimeFormatter.class.getPackage().equals(ta.getClass().getPackage()) -> fromParsed(ta);
       default -> {
         try {
           yield ofInstant(Instant.from(accessor));
@@ -271,6 +371,134 @@ public final /*value*/ class InternetTime
 
   // </editor-fold>
 
+  // <editor-fold desc="Formatting & Parsing Convenience Methods" defaultstate="collapsed"> ------
+
+  /// Obtains an instance of `InternetTime` from a text string using a specific formatter.
+  ///
+  /// Formatters that only support *local* date-time values will be assumed to occur in the
+  /// [Internet Time zone][#ZONE] (UTC+1).  Formatters that only support dates without a time
+  /// component are not supported.
+  ///
+  /// @param text to be parsed
+  /// @param formatter the formatter to use
+  /// @return the parsed Internet Time
+  /// @throws DateTimeException if an error occurs during printing
+  public static InternetTime parse(CharSequence text, DateTimeFormatter formatter) {
+    return requireNonNull(formatter, "formatter").parse(text, InternetTime::fromParsed);
+  }
+
+  /// Formats this Internet Time value using the provided formatter.
+  ///
+  /// If the format outputs a date, it will be in the [Internet Time zone][#ZONE] (UTC+1).
+  /// Formatters that output a zone and/or offset will output the same zone.  If the formatter
+  /// outputs a time, the value will be at the start of the current [beat][#getBeat()] and
+  /// [fractional beat][#getCentibeatOfBeat()].
+  ///
+  /// @param formatter the formatter to use
+  /// @return the formatted Internet Time string
+  /// @throws DateTimeException if an error occurs during printing
+  public String format(DateTimeFormatter formatter) {
+    return requireNonNull(formatter, "formatter").format(this);
+  }
+
+  /// Obtains a formatter that renders the time as **.beats**, for example: `@321.98`.
+  /// The provided `FormatStyle` determines the granularity and whether to prefix the
+  /// value with the `@` symbol traditionally used by *Swatch&reg;*.
+  ///
+  /// | `FormatStyle` | Example |
+  /// |---------------|---------|
+  /// | `SHORT`       |  457    |
+  /// | `MEDIUM`      | @457    |
+  /// | `LONG`        |  457.89 |
+  /// | `FULL`        | @457.89 |
+  ///
+  /// The returned formatters *only* render the time, not the date.  There are static fields on the
+  /// [InternetTime] class for some common formats.  A [DateTimeFormatterBuilder] can join the
+  /// output of this method with a preferred date representation or pattern to create custom
+  /// formats.
+  ///
+  /// Because the *.beat* time notation is the same in all time zones for a given instant, when
+  /// joining with a date format, it can be ambiguous whather the rendered date is the standard
+  /// *Internet Time* date or the end-user's local date.  Including the UTC offset, such as with
+  /// [DateTimeFormatter#ISO_OFFSET_DATE], is one possible solution (see: [#OFFSET_DATE_BEATS]).
+  ///
+  /// @param style `SHORT` and `MEDIUM` display whole *.beat* values without or with a leading `@`
+  ///     symbol, repsectively.  `LONG` and `FULL` are similar but add fractional centibeats.
+  /// @return formatter for time (only) displayed as *.beats*
+  public static DateTimeFormatter beatFormatter(FormatStyle style) {
+    int ordinal = requireNonNull(style, "style").ordinal();
+    return (DATETIMEFORMAT_ARRAY_VARHANDLE.getVolatile(TIME_FORMATTERS_BY_STYLE, ordinal)
+        instanceof DateTimeFormatter f) ? f : makeTimeFormat(style);
+  }
+
+  private static DateTimeFormatter makeTimeFormat(FormatStyle style) {
+    var fmt = appendTimeFormat(new DateTimeFormatterBuilder(), style).toFormatter();
+    DATETIMEFORMAT_ARRAY_VARHANDLE.setVolatile(TIME_FORMATTERS_BY_STYLE, style.ordinal(), fmt);
+    return fmt;
+  }
+
+  private static DateTimeFormatterBuilder appendTimeFormat(
+      DateTimeFormatterBuilder builder, FormatStyle style) {
+    final UnaryOperator<DateTimeFormatterBuilder> centibeats =
+        b -> b.optionalStart()
+            .appendLiteral('.')
+            .appendFraction(CENTIBEAT_OF_BEAT, 2, 2, false) // non-i18n decimal
+            .optionalEnd();
+    return switch (style) {
+      case SHORT -> builder.appendValue(BEAT_OF_DAY, 3);
+      case MEDIUM -> builder.appendLiteral("@").appendValue(BEAT_OF_DAY, 3);
+      case LONG -> centibeats.apply(appendTimeFormat(builder, FormatStyle.SHORT));
+      case FULL -> centibeats.apply(appendTimeFormat(builder, FormatStyle.MEDIUM));
+    };
+  }
+
+  private static DateTimeFormatter joinFormats(
+      DateTimeFormatter dateFormat, DateTimeFormatter timeFormat) {
+    return new DateTimeFormatterBuilder()
+        .append(dateFormat)
+        .appendLiteral(' ')
+        .append(timeFormat)
+        .toFormatter();
+  }
+
+  private static InternetTime fromParsed(TemporalAccessor ta) {
+    LocalDate date;
+    if (ta.isSupported(DAY_OF_MONTH) && ta.isSupported(MONTH_OF_YEAR) && ta.isSupported(YEAR)) {
+      date = LocalDate.of(ta.get(YEAR), ta.get(MONTH_OF_YEAR), ta.get(DAY_OF_MONTH));
+    } else {
+      date = LocalDate.EPOCH;
+    }
+    var offset = ta.isSupported(OFFSET_SECONDS)
+        ? ZoneOffset.ofTotalSeconds(ta.get(OFFSET_SECONDS))
+        : ZONE;
+    int centibeats;
+    if (ta.isSupported(CENTIBEAT_OF_DAY)) {
+      centibeats = (int) ta.getLong(CENTIBEAT_OF_DAY);
+    } else if (ta.isSupported(BEAT_OF_DAY)) {
+      centibeats = (int) ta.getLong(BEAT_OF_DAY) * CENTIBEATS_PER_BEAT;
+      if (ta.isSupported(CENTIBEAT_OF_BEAT)) {
+        centibeats += (int) ta.getLong(CENTIBEAT_OF_BEAT);
+      }
+    } else if (ta.isSupported(MILLI_OF_DAY)) {
+      centibeats =
+          (int) CENTIBEATS.fromMillis(
+              InternetTimeField.toNormalizedMilliOfDay(ta, offset.getTotalSeconds()));
+    } else if (ta.isSupported(INSTANT_SECONDS)) {
+      long instantSecs = INSTANT_SECONDS.getFrom(ta);
+      long msPart =
+          ta.isSupported(NANO_OF_SECOND)
+              ? TimeUnit.NANOSECONDS.toMillis(NANO_OF_SECOND.getFrom(ta))
+              : 0;
+      return ofInstant(Instant.ofEpochMilli(TimeUnit.SECONDS.toMillis(instantSecs) + msPart));
+    } else {
+      throw cannotDeriveFrom(ta);
+    }
+    date = normalizeLocalDate(date, offset, centibeats / CENTIBEATS_PER_BEAT, 0 /* fractional */);
+    return new InternetTime(date, centibeats);
+  }
+
+  // </editor-fold>
+
   // <editor-fold desc="Simple Instance Methods" defaultstate="collapsed"> -----------------------
 
   @Override
@@ -309,16 +537,12 @@ public final /*value*/ class InternetTime
   /// Outputs this date-time as a `String` suitable for debugging.
   ///
   /// The format of the output is not specified and is subject to change between revisions.
+  /// For stable, deterministic values use [#format].
   ///
   /// @return a string representation of this `InternetTime` date and time
   @Override
   public String toString() {
-    int partialBeats = getCentibeatOfBeat();
-    if (0 == partialBeats) {
-      return String.format("%s @%03d", toLocalDate(), getBeat());
-    } else {
-      return String.format("%s @%03d.%02d", toLocalDate(), getBeat(), partialBeats);
-    }
+    return RETRO_DATE_CENTIBEATS.format(this);
   }
 
   /// {@return the year field as a primitive `int` value}
@@ -739,18 +963,6 @@ public final /*value*/ class InternetTime
     }
     return unit.addTo(this, amount);
   }
-
-  // </editor-fold>
-
-  // <editor-fold desc="Formatting Convenience Methods" defaultstate="collapsed"> ----------------
-
-  // TODO!
-
-  // </editor-fold>
-
-  // <editor-fold desc="Parsing Convenience Methods" defaultstate="collapsed"> -------------------
-
-  // TODO!
 
   // </editor-fold>
 

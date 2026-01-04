@@ -245,7 +245,7 @@ public enum InternetTimeField implements TemporalField {
     } else if (value > MAX_MILLI_OF_DAY) {
       value %= MILLIS_PER_DAY;
     }
-    assert value >= 0 && value <= MAX_MILLI_OF_DAY;
+    assert ChronoField.MILLI_OF_DAY.range().checkValidValue(value, ChronoField.MILLI_OF_DAY) >= 0;
     return value;
   }
 
