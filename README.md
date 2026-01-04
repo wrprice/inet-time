@@ -7,10 +7,10 @@ introduced by Swatch&reg; Ltd. in 1998, interoperable with the modern *Java Time
 [![Project License](https://img.shields.io/github/license/wrprice/inet-time)](LICENSE)
 [![Maven Central Version](https://img.shields.io/maven-central/v/io.github.wrprice/inet-time)][central]
 [![API Documentation](https://javadoc.io/badge2/io.github.wrprice/inet-time/javadoc.svg)][javadoc]
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11673/badge)](https://www.bestpractices.dev/projects/11673)  
 [![Build Status](https://img.shields.io/github/actions/workflow/status/wrprice/inet-time/.github%2Fworkflows%2Fci.yml)](#)
 [![Test Instruction Coverage](.github/badges/jacoco.svg)](#)
 [![Test Branch Coverage](.github/badges/branches.svg)](#)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/11673/badge)](https://www.bestpractices.dev/projects/11673)
 
 [central]: https://central.sonatype.com/artifact/io.github.wrprice/inet-time/versions
 [javadoc]: https://javadoc.io/doc/io.github.wrprice/inet-time
