@@ -25,8 +25,11 @@ import static org.mockito.Mockito.*;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.time.*;
+import java.time.format.DateTimeFormatter;
+import java.time.format.FormatStyle;
 import java.time.temporal.*;
 import java.util.List;
+import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.LongStream;
 import org.junit.jupiter.api.Test;
@@ -91,7 +94,7 @@ public class InternetTimeTest {
     var it2 = InternetTime.of(cityODT.toLocalDate(), 0, 0, cityOffset); // local date at beat @000
     assertEquals(it, it2, "created from localdate + offset");
 
-    assertEquals("2025-10-12@000", it.toString(), "toString");
+    assertEquals("d12.10.2025 @000.00", it.toString(), "toString");
     assertEquals(0, it.getBeat(), "beat");
     assertEquals(0, it.getCentibeatOfDay(), "centibeat");
     assertEquals(0, it.getCentibeatOfBeat(), "centibeat-of-beat");
@@ -271,12 +274,8 @@ public class InternetTimeTest {
 
   @Test
   void toStringFormat() {
-    var date = LocalDate.now();
-    it = InternetTime.of(date, 234, 56, InternetTime.ZONE);
-    assertEquals(date + "@234.56", it.toString(), "with fractional beats");
-
-    it = it.with(BEAT_OF_DAY, 789);
-    assertEquals(date + "@789", it.toString(), "exact whole beats");
+    it = InternetTime.of(2025, 12, 31, 234, 56, InternetTime.ZONE);
+    assertEquals("d31.12.2025 @234.56", it.toString());
   }
 
   @ParameterizedTest
@@ -325,12 +324,16 @@ public class InternetTimeTest {
   @Test
   void toStartOfBeatFromInternetTime() {
     assertSame(it, InternetTime.toStartOf(CENTIBEAT_OF_DAY, it), "always centibeat-aligned");
+
     var it2 = InternetTime.of(it.toLocalDate(), Math.max(1, it.getBeat()), 0, InternetTime.ZONE);
     assertSame(it2, InternetTime.toStartOf(BEAT_OF_DAY, it2), "any beat without fractional part");
 
     var it3 = InternetTime.of(it.toLocalDate(), Math.max(1, it.getBeat()), 67, InternetTime.ZONE);
-    assertInstanceOf(InternetTime.class, it3);
-    assertEquals(it2, InternetTime.toStartOf(BEAT_OF_DAY, it3), "non-aligned");
+    var it4 = InternetTime.toStartOf(BEAT_OF_DAY, it3);
+    assertInstanceOf(InternetTime.class, it4);
+    assertEquals(Math.max(1, it.getBeat()), it4.getBeat(), "beat value");
+    assertEquals(0, it4.getCentibeatOfBeat(), "centibeat-of-beat value");
+    assertEquals(it2, it4, "non-aligned");
   }
 
   @Test
@@ -342,6 +345,20 @@ public class InternetTimeTest {
     var in2 = InternetTime.toStartOf(BEAT_OF_DAY, it.toInstant());
     assertThat("beat-aligned vs centi-aligned", in2, lessThanOrEqualTo(in));
     assertEqualsWithTolerance(BEATS, in, in2, "delta w/in 1 beat");
+  }
+
+  @Test
+  void toStartOfBeatFromOffsetDateTime() {
+    var odt = InternetTime.toStartOf(CENTIBEAT_OF_DAY, it.toOffsetDateTime());
+    assertInstanceOf(OffsetDateTime.class, odt);
+    assertEquals(it.toInstant(), odt.toInstant(), "instant exact");
+    int beat = odt.get(BEAT_OF_DAY);
+
+    var odt2 = InternetTime.toStartOf(BEAT_OF_DAY, it.toOffsetDateTime());
+    assertThat("beat-aligned vs centi-aligned", odt2, lessThanOrEqualTo(odt));
+    assertEqualsWithTolerance(BEATS, odt, odt2, "delta w/in 1 beat");
+    assertEquals(beat, odt2.get(BEAT_OF_DAY), "beat value");
+    assertEquals(0, odt2.get(CENTIBEAT_OF_DAY) % CENTIBEATS_PER_BEAT, "centibeat-of-beat value");
   }
 
   @Test
@@ -383,7 +400,11 @@ public class InternetTimeTest {
     for (var cf : ChronoField.values()) {
       assertTrue(it.isSupported(cf), cf.name());
     }
-    assertFalse(it.isSupported(PrivateField.CENTIBEAT_OF_BEAT), "other field type");
+
+    var otherType = mock(TemporalField.class);
+    when(otherType.isSupportedBy(it)).thenReturn(false);
+    assertFalse(it.isSupported(otherType), "other field type");
+    verify(otherType).isSupportedBy(it);
   }
 
   @Test
@@ -396,10 +417,11 @@ public class InternetTimeTest {
     for (var cf : ChronoField.values()) {
       assertEquals(odt.range(cf), it.range(cf), cf.name());
     }
-    assertEquals(
-        PrivateField.CENTIBEAT_OF_BEAT.range(),
-        it.range(PrivateField.CENTIBEAT_OF_BEAT),
-        "other type");
+
+    var otherRange = ValueRange.of(-1, +1);
+    var otherType = mock(TemporalField.class);
+    when(otherType.rangeRefinedBy(it)).thenReturn(otherRange);
+    assertEquals(otherRange, it.range(otherType), "other field type");
   }
 
   @Test
@@ -522,6 +544,7 @@ public class InternetTimeTest {
     it = InternetTime.of(it.toLocalDate(), 420, 69, InternetTime.ZONE);
     assertEquals(113, it.with(BEAT_OF_DAY, 113).getBeat(), "beat of day");
     assertEquals(70, it.with(CENTIBEAT_OF_DAY, 70).getCentibeatOfDay(), "centibeat of day");
+    assertEquals(70, it.with(CENTIBEAT_OF_BEAT, 70).getCentibeatOfBeat(), "centibeat of beat");
   }
 
   @Test
@@ -594,5 +617,145 @@ public class InternetTimeTest {
         assertEquals(expected, it.plus(adder, unit), unit.name());
       }
     }
+  }
+
+  @Test
+  void staticFormatters() {
+    it = it.with(CENTIBEAT_OF_DAY, 234_67);
+    var localDateStr = it.toLocalDate().format(DateTimeFormatter.ISO_LOCAL_DATE);
+    var cases =
+        Map.of(
+            InternetTime.LOCAL_DATE_BEATS, localDateStr + " @234",
+            InternetTime.LOCAL_DATE_CENTIBEATS, localDateStr + " @234.67",
+            InternetTime.OFFSET_DATE_BEATS, localDateStr + "+01:00 @234",
+            InternetTime.OFFSET_DATE_CENTIBEATS, localDateStr + "+01:00 @234.67");
+    cases.forEach(
+        (fmt, expected) -> {
+          assertEquals(expected, fmt.format(it), fmt + " fmt.format(it)");
+          assertEquals(expected, it.format(fmt), fmt + " it.format(fmt)");
+        });
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "SHORT,  234",
+    "MEDIUM, @234",
+    "LONG,   234.67",
+    "FULL,   @234.67",
+  })
+  void beatFormatter(FormatStyle style, String expected) {
+    it = it.with(CENTIBEAT_OF_DAY, 234_67);
+    var fmt = InternetTime.beatFormatter(style);
+    assertEquals(expected, fmt.format(it), "formatter.format(it)");
+    assertEquals(expected, it.format(fmt), "it.format(formatter)");
+  }
+
+  @Test
+  void beatFormatterNullStyle() {
+    assertThrows(NullPointerException.class, () -> InternetTime.beatFormatter(null));
+  }
+
+  @Test
+  void formatNull() {
+    assertThrows(NullPointerException.class, () -> it.format(null));
+  }
+
+  @Test
+  void parseNullFormatter() {
+    assertThrows(NullPointerException.class, () -> InternetTime.parse("", null));
+  }
+
+  @Test
+  void parseNullText() {
+    var parser = InternetTime.OFFSET_DATE_BEATS;
+    assertThrows(NullPointerException.class, () -> InternetTime.parse(null, parser));
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "LOCAL_DATE_BEATS,       2026-01-02 @345,          2026-01-02, 345, 0",
+    "LOCAL_DATE_CENTIBEATS,  2026-01-02 @345.78,       2026-01-02, 345, 78",
+    "LOCAL_DATE_CENTIBEATS,  2026-01-02 @345,          2026-01-02, 345, 0", // optional fraction
+    "OFFSET_DATE_BEATS,      2026-01-02+01:00 @345,    2026-01-02, 345, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02+01:00 @345.78, 2026-01-02, 345, 78",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02+01:00 @345,    2026-01-02, 345, 0", // optional fraction
+    "OFFSET_DATE_BEATS,      2026-01-02+02:00 @345,    2026-01-02, 345, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02+02:00 @345.78, 2026-01-02, 345, 78",
+    "OFFSET_DATE_BEATS,      2026-01-02+00:00 @345,    2026-01-02, 345, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02+00:00 @345.78, 2026-01-02, 345, 78",
+    "OFFSET_DATE_BEATS,      2026-01-02-05:00 @345,    2026-01-02, 345, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02-05:00 @345.78, 2026-01-02, 345, 78",
+    "OFFSET_DATE_BEATS,      2026-01-02-12:00 @345,    2026-01-03, 345, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02-12:00 @345.23, 2026-01-03, 345, 23",
+    "OFFSET_DATE_BEATS,      2026-01-02+12:00 @789,    2026-01-01, 789, 0",
+    "OFFSET_DATE_CENTIBEATS, 2026-01-02+12:00 @789.23, 2026-01-01, 789, 23",
+  })
+  void parseStaticFormats(
+      String fmtName, String input, LocalDate expectDateUtc1, int expectBeats, int expectCenti) {
+    var fmt = Map.of(
+        "LOCAL_DATE_BEATS", InternetTime.LOCAL_DATE_BEATS,
+        "LOCAL_DATE_CENTIBEATS", InternetTime.LOCAL_DATE_CENTIBEATS,
+        "OFFSET_DATE_BEATS", InternetTime.OFFSET_DATE_BEATS,
+        "OFFSET_DATE_CENTIBEATS", InternetTime.OFFSET_DATE_CENTIBEATS
+      ).get(fmtName);
+    var expect = InternetTime.of(expectDateUtc1, expectBeats, expectCenti, InternetTime.ZONE);
+    assertEquals(expect, InternetTime.parse(input, fmt), "IT.parse(str, fmt)");
+    assertEquals(expect, fmt.parse(input, InternetTime::from), "fmt.parse(str, IT::from)");
+  }
+
+  @ParameterizedTest
+  @CsvSource({
+    "SHORT,      123, 123,  0",
+    "SHORT,      456, 456,  0",
+    "MEDIUM,    @123, 123,  0",
+    "MEDIUM,    @456, 456,  0",
+    "LONG,       123, 123,  0",
+    "LONG,       456, 456,  0",
+    "LONG,    123.98, 123, 98",
+    "LONG,    456.12, 456, 12",
+    "FULL,   @123.98, 123, 98",
+    "FULL,   @456.12, 456, 12",
+    "FULL,      @123, 123,  0",
+    "FULL,      @456, 456,  0",
+  })
+  void parseBeatFormats(
+      FormatStyle style, String input, int expectBeats, int expectCenti) {
+    var fmt = InternetTime.beatFormatter(style);
+    var expect = InternetTime.of(LocalDate.EPOCH, expectBeats, expectCenti, InternetTime.ZONE);
+    assertEquals(expect, InternetTime.parse(input, fmt), "IT.parse(str, fmt)");
+    assertEquals(expect, fmt.parse(input, InternetTime::from), "fmt.parse(str, IT::from)");
+  }
+
+  @Test
+  void parseStandardFormats() {
+    var str = "2026-01-03T12:34:56.7Z";
+    it = InternetTime.of(LocalDate.of(2026, 01, 03), 565, 93, InternetTime.ZONE);
+    assertEquals(it, InternetTime.parse(str, DateTimeFormatter.ISO_INSTANT), "ISO_INSTANT");
+    assertEquals(it, InternetTime.parse(str, DateTimeFormatter.ISO_DATE_TIME), "ISO_DATE_TIME");
+    assertEquals(
+        it.minus(1, ChronoUnit.HOURS),
+        InternetTime.parse(
+            str.replace("Z", ""), DateTimeFormatter.ISO_LOCAL_DATE_TIME), "ISO_LOCAL_DATE_TIME");
+    assertEquals(
+        it.plus(4167, CENTIBEATS),
+        InternetTime.parse(
+            str.replace("Z", "-01:00"),
+            DateTimeFormatter.ISO_OFFSET_DATE_TIME),
+        "ISO_OFFSET_DATE_TIME");
+
+    str = "12:34:56.7-00:00";
+    it = InternetTime.of(LocalDate.EPOCH, 565, 93, InternetTime.ZONE);
+    assertEquals(it, InternetTime.parse(str, DateTimeFormatter.ISO_OFFSET_TIME), "ISO_OFFSET_TIME");
+    assertEquals(
+        it.minus(1, ChronoUnit.HOURS),
+        InternetTime.parse(str.replace("-00:00", ""), DateTimeFormatter.ISO_TIME), "ISO_TIME");
+
+    assertThrows(
+        DateTimeException.class,
+        () -> InternetTime.parse(
+            "2026-01-03-06:00", DateTimeFormatter.ISO_OFFSET_DATE), "ISO_OFFSET_DATE");
+    assertThrows(
+        DateTimeException.class,
+        () -> InternetTime.parse("2026-01-03", DateTimeFormatter.ISO_DATE), "ISO_DATE");
   }
 }

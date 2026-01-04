@@ -16,7 +16,6 @@
 package io.github.wrprice.inettime;
 
 import static io.github.wrprice.inettime.InternetTimeUnit.*;
-import static java.time.temporal.ChronoUnit.DAYS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static java.util.Objects.requireNonNull;
 
@@ -24,6 +23,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime; // for Javadoc reference
+import java.time.ZoneOffset;
 import java.time.temporal.*;
 import java.util.Locale;
 
@@ -52,6 +52,28 @@ public enum InternetTimeField implements TemporalField {
   ///
   /// Counts the *centibeats* within the day, from 0 to (100,000 - 1).
   CENTIBEAT_OF_DAY("CentibeatOfDay", CENTIBEATS, 999_99),
+
+  /// The [centibeats][InternetTimeUnit#CENTIBEATS] elapsed since the last
+  /// [*.beat*][#BEAT_OF_DAY]-of-day boundary, from 0 to (100 - 1).
+  CENTIBEAT_OF_BEAT("CentibeatOfBeat", CENTIBEATS, 99) {
+    @Override
+    public TemporalUnit getRangeUnit() {
+      return InternetTimeUnit.BEATS;
+    }
+
+    @Override
+    public long getFrom(TemporalAccessor temporal) {
+      return super.getFrom(temporal) % CENTIBEATS_PER_BEAT;
+    }
+
+    @Override
+    long adjustIntoMillisOfDayWithOffset(long newValue, Temporal temporal, int utcOffsetSecs) {
+      long centibeats = CENTIBEAT_OF_DAY.getFrom(temporal);
+      long priorValue = centibeats % CENTIBEATS_PER_BEAT;
+      centibeats += newValue - priorValue;
+      return super.adjustIntoMillisOfDayWithOffset(centibeats, temporal, utcOffsetSecs);
+    }
+  }
   ; // end of enum instances
 
   private static final long MAX_MILLI_OF_DAY =
@@ -83,16 +105,23 @@ public enum InternetTimeField implements TemporalField {
     return toString(); // FUTURE: localization
   }
 
-  /// {@return an [InternetTimeUnit]}
+  /// The unit this field is measured in.
+  ///
+  /// @return an [InternetTimeUnit]
   @Override
   public TemporalUnit getBaseUnit() {
     return unit;
   }
 
-  /// {@return [ChronoUnit#DAYS]}  All *Internet Time*-specific units are relative to a single day.
+  /// The unit this field in bound by.
+  ///
+  /// For example, for [#BEAT_OF_DAY] this returns [ChronoUnit#DAYS] but for [#CENTIBEAT_OF_BEAT]
+  /// this returns [InternetTimeUnit#BEATS].
+  ///
+  /// @return denominator unit that defines the range
   @Override
   public TemporalUnit getRangeUnit() {
-    return DAYS;
+    return ChronoUnit.DAYS;
   }
 
   /// {@return a value from 0 to the upper range of the field (see enum instance documentation)}
@@ -132,7 +161,8 @@ public enum InternetTimeField implements TemporalField {
   }
 
   DateTimeException exceptionForUnsupported(TemporalAccessor ta) {
-    return new UnsupportedTemporalTypeException(ta.getClass() + " does not support " + this);
+    return new UnsupportedTemporalTypeException(
+        this + " not supported by " + ta.getClass() + ": " + ta);
   }
 
   /// {@return equivalent to [#range()]}  *Internet Time* field ranges do not vary by date nor
@@ -147,14 +177,18 @@ public enum InternetTimeField implements TemporalField {
 
   @Override
   public long getFrom(TemporalAccessor temporal) {
-    if (temporal instanceof InternetTime it) {
-      return switch (this) {
-        case BEAT_OF_DAY -> it.getBeat();
-        case CENTIBEAT_OF_DAY -> it.getCentibeatOfDay();
-      };
+    final int utcOffsetSecs;
+    switch (temporal) {
+      case InternetTime it -> { return it.getLong(this); }
+      case Instant i -> {
+        utcOffsetSecs = ZoneOffset.UTC.getTotalSeconds();
+        temporal = i.atOffset(ZoneOffset.UTC);
+      }
+      default -> {
+        throwIfNotSupported(temporal);
+        utcOffsetSecs = temporal.get(ChronoField.OFFSET_SECONDS);
+      }
     }
-    throwIfNotSupported(temporal);
-    final long utcOffsetSecs = ChronoField.OFFSET_SECONDS.getFrom(temporal);
     return unit.fromMillis(toNormalizedMilliOfDay(temporal, utcOffsetSecs));
   }
 
@@ -163,30 +197,41 @@ public enum InternetTimeField implements TemporalField {
     return unit.fromMillis(toNormalizedMilliOfDay(temporal, utcOffsetSecs));
   }
 
-  @Override
-  public <R extends Temporal> R adjustInto(R temporal, long newValue) {
-    if (!range().isValidValue(newValue)) {
-      throw new DateTimeException("Value out of range for " + this + ": " + newValue);
-    }
-    if (temporal instanceof InternetTime it) {
-      @SuppressWarnings("unchecked")
-      R r = (R) it.with(this, newValue);
-      return r;
-    }
-    throwIfNotSupported(temporal);
-    final long utcOffsetSecs = ChronoField.OFFSET_SECONDS.getFrom(temporal);
-    final long millisOfDay = toOffsetMilliOfDay(unit.toMillis(newValue), utcOffsetSecs);
-    return ChronoField.MILLI_OF_DAY.adjustInto(temporal, millisOfDay);
-  }
-
-  private long toNormalizedMilliOfDay(TemporalAccessor temporal, long utcOffsetSecs) {
+  static long toNormalizedMilliOfDay(TemporalAccessor temporal, int utcOffsetSecs) {
     long milliOfDay = ChronoField.MILLI_OF_DAY.getFrom(temporal);
     milliOfDay = Math.subtractExact(milliOfDay, SECONDS.toMillis(utcOffsetSecs)); // to UTC
     milliOfDay = Math.addExact(milliOfDay, INET_UTC_OFFSET_MILLIS); // UTC --> INet Time
     return wrapMilliOfDay(milliOfDay);
   }
 
-  private long toOffsetMilliOfDay(long normalizedMillisOfDay, long utcOffsetSecs) {
+  @Override
+  public <R extends Temporal> R adjustInto(R temporal, long newValue) {
+    if (!range().isValidValue(newValue)) {
+      throw new DateTimeException("Value out of range for " + this + ": " + newValue);
+    }
+    switch (temporal) {
+      case InternetTime it -> {
+        @SuppressWarnings("unchecked")
+        R r = (R) it.with(this, newValue);
+        return r;
+      }
+      case Instant i -> {
+        @SuppressWarnings("unchecked")
+        R r = (R) adjustInto(i.atOffset(ZoneOffset.UTC), newValue).toInstant();
+        return r;
+      }
+      default -> throwIfNotSupported(temporal);
+    }
+    int utcOffsetSecs = temporal.get(ChronoField.OFFSET_SECONDS);
+    long millisOfDay = adjustIntoMillisOfDayWithOffset(newValue, temporal, utcOffsetSecs);
+    return ChronoField.MILLI_OF_DAY.adjustInto(temporal, millisOfDay);
+  }
+
+  long adjustIntoMillisOfDayWithOffset(long newValue, Temporal temporal, int utcOffsetSecs) {
+    return toOffsetMilliOfDay(unit.toMillis(newValue), utcOffsetSecs);
+  }
+
+  private long toOffsetMilliOfDay(long normalizedMillisOfDay, int utcOffsetSecs) {
     long milliOfDay = normalizedMillisOfDay;
     milliOfDay = Math.subtractExact(milliOfDay, INET_UTC_OFFSET_MILLIS); // INet Time --> UTC
     milliOfDay = Math.addExact(milliOfDay, SECONDS.toMillis(utcOffsetSecs)); // UTC -> wanted offset
@@ -200,7 +245,7 @@ public enum InternetTimeField implements TemporalField {
     } else if (value > MAX_MILLI_OF_DAY) {
       value %= MILLIS_PER_DAY;
     }
-    assert value >= 0 && value <= MAX_MILLI_OF_DAY;
+    assert ChronoField.MILLI_OF_DAY.range().checkValidValue(value, ChronoField.MILLI_OF_DAY) >= 0;
     return value;
   }
 
