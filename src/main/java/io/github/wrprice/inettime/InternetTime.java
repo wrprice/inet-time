@@ -419,12 +419,12 @@ public final /*value*/ class InternetTime
   /// formats.
   ///
   /// Because the *.beat* time notation is the same in all time zones for a given instant, when
-  /// joining with a date format, it can be ambiguous whather the rendered date is the standard
+  /// joining with a date format, it can be ambiguous whether the rendered date is the standard
   /// *Internet Time* date or the end-user's local date.  Including the UTC offset, such as with
   /// [DateTimeFormatter#ISO_OFFSET_DATE], is one possible solution (see: [#OFFSET_DATE_BEATS]).
   ///
   /// @param style `SHORT` and `MEDIUM` display whole *.beat* values without or with a leading `@`
-  ///     symbol, repsectively.  `LONG` and `FULL` are similar but add fractional centibeats.
+  ///     symbol, respectively.  `LONG` and `FULL` are similar but add fractional centibeats.
   /// @return formatter for time (only) displayed as *.beats*
   public static DateTimeFormatter beatFormatter(FormatStyle style) {
     int ordinal = requireNonNull(style, "style").ordinal();
@@ -758,7 +758,7 @@ public final /*value*/ class InternetTime
   public OffsetDateTime toNearestSecond() {
     var odt = toOffsetDateTime();
     int remainder = odt.get(MILLI_OF_SECOND);
-    int adjustment = (Long.signum(499 - remainder) >>> 31) * 1000 - remainder;
+    int adjustment = (Integer.signum(499 - remainder) >>> 31) * 1000 - remainder;
     return odt.plusNanos(TimeUnit.MILLISECONDS.toNanos(adjustment));
   }
 
@@ -854,16 +854,8 @@ public final /*value*/ class InternetTime
 
       case CLOCK_HOUR_OF_AMPM -> { var hr = getLong(HOUR_OF_AMPM); yield 0 == hr ? 12 : hr; }
 
-      case AMPM_OF_DAY -> {
-        // if time is before (1ms before Noon) then signum will be -1, negated -> +1, and shift -> 0
-        // if time is exactly (1ms before Noon) then signum will be 0, negated -> 0, and shift -> 0
-        // if time >= 1ms after (1ms before Noon) then signum will be +1, negated -> -1, shift -> 1
-        long time = millisecondOfDay();
-        long justBeforeNoon = LocalTime.NOON.getLong(MILLI_OF_DAY) - 1;
-        int amPM = -(Long.signum(time - justBeforeNoon)) >>> 31;
-        assert 0 == (amPM & ~0x1); // all bits 0 except for possibly the last -> result is 1 or 0
-        yield amPM;
-      }
+      case AMPM_OF_DAY ->
+          TimeUnit.MILLISECONDS.toNanos(millisecondOfDay()) >= LocalTime.NOON.toNanoOfDay() ? 1 : 0;
 
       case NANO_OF_SECOND -> millisecondOfDay() % 1000 * 1_000_000;
 

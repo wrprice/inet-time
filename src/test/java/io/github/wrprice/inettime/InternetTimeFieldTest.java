@@ -92,7 +92,7 @@ public class InternetTimeFieldTest {
   }
 
   @Test
-  void geRangeUnit() {
+  void getRangeUnit() {
     for (var field : FIELDS) {
       var expected = switch(field) {
         case BEAT_OF_DAY -> ChronoUnit.DAYS;

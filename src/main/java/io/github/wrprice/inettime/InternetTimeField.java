@@ -113,7 +113,7 @@ public enum InternetTimeField implements TemporalField {
     return unit;
   }
 
-  /// The unit this field in bound by.
+  /// The unit this field is bound by.
   ///
   /// For example, for [#BEAT_OF_DAY] this returns [ChronoUnit#DAYS] but for [#CENTIBEAT_OF_BEAT]
   /// this returns [InternetTimeUnit#BEATS].
@@ -239,13 +239,10 @@ public enum InternetTimeField implements TemporalField {
   }
 
   static long wrapMilliOfDay(long value) {
+    value %= MILLIS_PER_DAY;
     if (value < 0) {
-      value %= MILLIS_PER_DAY;
-      value -= Long.signum(value) * MILLIS_PER_DAY;
-    } else if (value > MAX_MILLI_OF_DAY) {
-      value %= MILLIS_PER_DAY;
+      value += MILLIS_PER_DAY;
     }
-    assert ChronoField.MILLI_OF_DAY.range().checkValidValue(value, ChronoField.MILLI_OF_DAY) >= 0;
     return value;
   }
 
