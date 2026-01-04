@@ -25,6 +25,7 @@ import java.io.Serializable;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.time.*;
+import java.time.chrono.IsoChronology;
 import java.time.format.*;
 import java.time.temporal.*;
 import java.util.concurrent.TimeUnit;
@@ -795,7 +796,21 @@ public final /*value*/ class InternetTime
 
   @Override
   public <R> R query(TemporalQuery<R> query) {
-    return Temporal.super.query(query);
+    // NOTE: Object reference equivalence is intended!  See TemporalAccessor#query API spec
+    Object answer;
+    if (query == TemporalQueries.chronology()) {
+      answer = IsoChronology.INSTANCE;
+    } else if (query == TemporalQueries.precision()) {
+      answer = CENTIBEATS;
+    } else if (query == TemporalQueries.offset()) {
+      // NOTE: *not* overriding default for ZoneId query, see TemporalQueries#zoneId for why
+      answer = ZONE;
+    } else {
+      return Temporal.super.query(query); // REQUIRED by API spec
+    }
+    @SuppressWarnings("unchecked")
+    R r = (R) answer;
+    return r;
   }
 
   @Override

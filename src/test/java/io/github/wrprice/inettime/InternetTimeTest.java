@@ -25,6 +25,7 @@ import static org.mockito.Mockito.*;
 
 import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.time.*;
+import java.time.chrono.IsoChronology;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
 import java.time.temporal.*;
@@ -422,6 +423,15 @@ public class InternetTimeTest {
     var otherType = mock(TemporalField.class);
     when(otherType.rangeRefinedBy(it)).thenReturn(otherRange);
     assertEquals(otherRange, it.range(otherType), "other field type");
+  }
+
+  @Test
+  void query() {
+    assertEquals(IsoChronology.INSTANCE, it.query(TemporalQueries.chronology()), "chronology");
+    assertEquals(CENTIBEATS, it.query(TemporalQueries.precision()), "precision");
+    assertEquals(InternetTime.ZONE, it.query(TemporalQueries.zone()), "zone");
+    assertEquals(InternetTime.ZONE, it.query(TemporalQueries.offset()), "offset");
+    assertNull(it.query(TemporalQueries.zoneId()), "zoneId");
   }
 
   @Test
