@@ -17,7 +17,6 @@ package io.github.wrprice.inettime;
 
 import static io.github.wrprice.inettime.InternetTimeField.*;
 import static io.github.wrprice.inettime.InternetTimeUnit.*;
-import static io.github.wrprice.inettime.PrivateField.CENTIBEAT_OF_BEAT;
 import static java.time.temporal.ChronoField.*;
 import static java.util.Objects.requireNonNull;
 
@@ -29,13 +28,57 @@ import java.util.concurrent.TimeUnit;
 
 /// Represents a global instant according to the *Swatch&reg; Internet Time* standard:
 /// a date-time with a *fixed offset* from <abbr title="Coordinated Universal Time">UTC</abbr>
-/// in the ISO calendar.  An example is: `2025-12-28@123.45`.  As implied by the fixed offset,
+/// in the ISO calendar.  An example is: `2025-12-28 @123.45`.  As implied by the fixed offset,
 /// <abbr title="Daylight Saving Time">DST</abbr> *does not apply*.
 ///
-/// The goal is to provide similar functionality as Java's [OffsetDateTime]; however, unlike
-/// `OffsetDateTime`, this implementation's time-of-day resolution is limited to the granularity of
-/// a single [centibeat][InternetTimeUnit#CENTIBEATS] and the zone offset is not stored because a
-/// constant, fixed offset is implied.
+/// This implementation's time-of-day precision is limited to the granularity of a single
+/// [centibeat][InternetTimeUnit#CENTIBEATS] measured from midnight, and the zone offset is not
+/// stored because a constant, fixed UTC offset is implied.  In that way, this class is somewhat
+/// of a hybrid between an [Instant] and an [OffsetDateTime], with similar functionality.
+///
+/// ## Factory methods
+///
+/// - `public static` methods starting with `of` create **exact** values in *Internet Time*.
+/// - `public static` methods starting with `now` create values **at or before** the current time
+///   given by the system default or a provided [Clock].
+/// - [#from(TemporalAccessor)] attempts to derive an *Internet Time* value **equal to or before**
+///   the provided value.
+/// - `public static` methods starting with `parse` attempt to obtain an *Internet Time* value
+///   **equal to or before** the date-time represented as text, given a corresponding formatter.
+///
+/// Attempting to "round-trip" an `InternetTime` value from an inexact method back to the original
+/// type may not result in an equivalent value due to alignment and precision differences.
+///
+/// ## Convenience methods
+///
+/// ### Alignment
+///
+/// - [#toNearestSecond()] creates an `OffsetDateTime` at the nearest whole second boundary (where
+///   all smaller units, such as millisecond-of-second, etc.) are zero(0).  The nearest second can
+///   occur *before or after* the original `InternetTime` value on the time line.
+/// - [#toStartOf(InternetTimeField, Temporal)] aligns a date-time value of another type to the
+///   first millisecond-of-day of its equivalent *Internet Time* value, at the resolution of the
+///   specified [InternetTimeField] (effectively, the current *.beat* or centibeat).
+///
+/// ### Conversion
+///
+/// Various `public` instance methods beginning with `to` and named after common `java.time` API
+/// value types generate those value types from the value of the original `InternetTime` instance.
+/// Converted values are aligned to the beginning millisecond-of-day of the original value's
+/// centibeat-of-day.
+///
+/// - [#toInstant()]
+/// - [#toLocalDate()]
+/// - [#toLocalDateTime()]
+/// - [#toOffsetDateTime()]
+/// - [#toOffsetTime()]
+///
+/// The `static` methods [#timeOfBeat(int)] and [#timeOfBeat(int, int)] produce [OffsetTime]
+/// values for various *.beat* values that can then be converted to hours, minutes, seconds, etc.,
+/// in non-*Internet Time* zones with different offsets.  These values are useful for time display
+/// purposes where the date context (if any) is handled separately.
+///
+/// -----
 ///
 /// **Implementation notes:**  
 /// This class is immutable and thread-safe.
@@ -52,10 +95,8 @@ public final /*value*/ class InternetTime
     implements Temporal, Comparable<InternetTime>, Serializable {
 
   /// Fixed-offset zone based on the location of Swatch's headquarters in Biel, Switzerland.
+  /// Can also be used as a [ZoneId].
   public static final ZoneOffset ZONE = ZoneOffset.ofHours(+1);
-
-  /// This Temporal type should have functionality and behavior similar to OffsetDateTime.
-  private static final Temporal ANALOG = OffsetDateTime.MIN;
 
   @Serial
   private static final long serialVersionUID = 202512271724L;
@@ -81,14 +122,43 @@ public final /*value*/ class InternetTime
 
   // <editor-fold desc="Factory Methods" defaultstate="collapsed"> -------------------------------
 
+  /// Obtains the current date-time from the system clock in *Internet Time*. The offset is always
+  /// UTC+1, regardless of the system's default time-zone.
+  ///
+  /// Using this method will prevent the ability to use an alternate clock for testing because the
+  /// clock is hard-coded.
+  ///
+  /// @return the current date and time from the system clock
   public static InternetTime now() {
     return now(Clock.systemUTC());
   }
 
+  /// Obtains the current date-time from a provided clock. The offset is always UTC+1, computed
+  /// from the offset of the time-zone in the clock.
+  ///
+  /// Using this method allows using an alternate clock for testing.
+  ///
+  /// @param clock the clock to use
+  /// @return the current date and time according to the clock
   public static InternetTime now(Clock clock) {
     return ofInstant(requireNonNull(clock, "clock").instant());
   }
 
+  /// Obtains an instance of `InternetTime` from a temporal object.  A `TemporalAccessor` represents
+  /// an arbitrary set of date and time information.  This factory first attempts to translate
+  /// `java.time` date-time types supporting time-zone offset information, falling back to an
+  /// `Instant` if necessary.
+  ///
+  /// **Local** date-time values, date-only, and time-only values are not supported, because a
+  /// representation in *Internet Time* requires determining the offset relative to UTC+1.
+  ///
+  /// Attempting to "round-trip" the returned [InternetTime] [back to][#toInstant()] an `Instant`
+  /// will often result in a *different value* (+/- 864ms) because of the precision limitations of
+  /// `InternetTime`.
+  ///
+  /// @param accessor the temporal object to convert
+  /// @return a date-time aligned to *Internet Time*
+  /// @throws DateTimeException if unable to convert to an `InternetTime`
   public static InternetTime from(TemporalAccessor accessor) {
     requireNonNull(accessor, "accessor");
     return switch (accessor) {
@@ -99,38 +169,104 @@ public final /*value*/ class InternetTime
         try {
           yield ofInstant(Instant.from(accessor));
         } catch (DateTimeException dte) {
-          var typeName = accessor.getClass().getName();
-          throw new DateTimeException(
-              "Cannot derive InternetTime from " + typeName + ": " + accessor);
+          throw cannotDeriveFrom(accessor);
         }
       }
     };
   }
 
-  public static InternetTime ofInstant(Instant instant) {
+  private static DateTimeException cannotDeriveFrom(TemporalAccessor accessor) {
+    var typeName = accessor.getClass().getName();
+    return new DateTimeException("Cannot derive InternetTime from " + typeName + ": " + accessor);
+  }
+
+  /// Obtains an instance of `InternetTime` from an `Instant`.
+  ///
+  /// Attempting to "round-trip" the returned [InternetTime] [back to][#toInstant()] an `Instant`
+  /// will often result in a *different value* (+/- 864ms) because of the precision limitations of
+  /// `InternetTime`.
+  ///
+  /// @param instant the instant to create the date-time from
+  /// @return the date and time in *Internet Time*
+  static InternetTime ofInstant(Instant instant) {
     return new InternetTime(LocalDateTime.ofInstant(requireNonNull(instant, "instant"), ZONE));
   }
 
+  /// Obtains an instance of `InternetTime` from a year, month, day, *.beat*, fractional hundredths
+  /// of a *.beat*, and offset.
+  ///
+  /// This method may be best suited for writing test cases.  Non-test code may prefer other
+  /// methods like [#ofInstant(Instant)] and [#from(TemporalAccessor)].  For non-test code using
+  /// the concepts of [BEAT_OF_DAY][InternetTimeField#BEAT_OF_DAY] and
+  /// [CENTIBEAT_OF_BEAT][InternetTimeField#CENTIBEAT_OF_BEAT] directly, see:
+  /// [#of(LocalDate, int, int, ZoneOffset)].
+  ///
+  /// @param year the year
+  /// @param month the month of the year, from 1 (January) to 12 (December)
+  /// @param dayOfMonth the day of the month, from 1 to 31 (depending on the month)
+  /// @param beat the number of *.beats* since *Internet Time* midnight, from 0 to 999
+  /// @param hundredthsOfBeat of a *.beat*, the fractional part since the `beat` began, from 0 to 99
+  /// @param offset the zone offset of the date (the `beat` and `hundredths` are not affected)
+  /// @return the date and time in *Internet Time*
+  /// @throws DateTimeException if any field value is out of range or not valid for the month & year
   public static InternetTime of(
-      int year, int month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset zone) {
-    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, zone);
+      int year, int month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset offset) {
+    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, offset);
   }
 
+  /// Obtains an instance of `InternetTime` from a year, month, day, *.beat*, fractional hundredths
+  /// of a *.beat*, and offset.
+  ///
+  /// This method may be best suited for writing test cases.  Non-test code may prefer other
+  /// methods like [#ofInstant(Instant)] and [#from(TemporalAccessor)].  For non-test code using
+  /// the concepts of [BEAT_OF_DAY][InternetTimeField#BEAT_OF_DAY] and
+  /// [CENTIBEAT_OF_BEAT][InternetTimeField#CENTIBEAT_OF_BEAT] directly, see:
+  /// [#of(LocalDate, int, int, ZoneOffset)].
+  ///
+  /// @param year the year
+  /// @param month the month of the year
+  /// @param dayOfMonth the day of the month, from 1 to 31 (depending on the month)
+  /// @param beat the number of *.beats* since *Internet Time* midnight, from 0 to 999
+  /// @param hundredthsOfBeat of a *.beat*, the fractional part since the `beat` began, from 0 to 99
+  /// @param offset the zone offset of the date (the `beat` and `hundredths` are not affected)
+  /// @return the date and time in *Internet Time*
+  /// @throws DateTimeException if any field value is out of range or not valid for the month & year
   public static InternetTime of(
-      int year, Month month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset zone) {
-    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, zone);
+      int year, Month month, int dayOfMonth, int beat, int hundredthsOfBeat, ZoneOffset offset) {
+    return of(LocalDate.of(year, month, dayOfMonth), beat, hundredthsOfBeat, offset);
   }
 
+  /// Obtains an instance of `InternetTime` from a `LocalDate`, *.beat*, fractional hundredths
+  /// of a *.beat*, and offset.
+  ///
+  /// This method is best suited for code operating natively in [beats][InternetTimeUnit#BEATS] and
+  /// [centibeats][InternetTimeUnit#CENTIBEATS] but with other `java.time` API types for other
+  /// components like dates.
+  ///
+  /// @param date the local date
+  /// @param beat the number of *.beats* since *Internet Time* midnight, from 0 to 999
+  /// @param hundredthsOfBeat of a *.beat*, the fractional part since the `beat` began, from 0 to 99
+  /// @param offset the zone offset of the local date (the `beat` and `hundredths` are not affected)
+  /// @return the date and time in *Internet Time*
+  /// @throws DateTimeException if any field value is out of range
   public static InternetTime of(LocalDate date, int beat, int hundredthsOfBeat, ZoneOffset offset) {
-    long msOfDay = beatsToMillisOfDay(beat, hundredthsOfBeat);
-    int adjustMs = 1000 * (offset.getTotalSeconds() - ZONE.getTotalSeconds());
-    long adjusted = msOfDay + adjustMs;
-    if (adjusted < 0) {
-      date = date.plusDays(1); // date in Biel will be the next day
-    } else if (adjusted >= MILLIS_PER_DAY) {
-      date = date.minusDays(1); // date in Biel will be the prior day
-    }
+    date = normalizeLocalDate(date, offset, beat, hundredthsOfBeat);
     return new InternetTime(date, CENTIBEATS_PER_BEAT * beat + hundredthsOfBeat);
+  }
+
+  private static LocalDate normalizeLocalDate(
+      LocalDate date, ZoneOffset dateOffset, int beat, int hundredthsOfBeat) {
+    int adjustMs = 1000 * (dateOffset.getTotalSeconds() - ZONE.getTotalSeconds());
+    if (adjustMs != 0) {
+      long msOfDay = beatsToMillisOfDay(beat, hundredthsOfBeat);
+      long adjusted = msOfDay + adjustMs;
+      if (adjusted < 0) {
+        date = date.plusDays(1); // date in Biel will be the next day
+      } else if (adjusted >= MILLIS_PER_DAY) {
+        date = date.minusDays(1); // date in Biel will be the prior day
+      }
+    }
+    return date;
   }
 
   // </editor-fold>
@@ -142,6 +278,11 @@ public final /*value*/ class InternetTime
     return date.hashCode() * 31 + Integer.hashCode(centibeatOfDay);
   }
 
+  /// Checks if this date-time is equal to another `InternetTime` date-time. Other types return
+  /// `false`.
+  ///
+  /// @param other the object to check, `null` returns `false`
+  /// @return `true` if `other` is an `InternetTime` representing the same instant on the time-line
   @Override
   public boolean equals(Object other) {
     return other instanceof InternetTime it
@@ -149,6 +290,12 @@ public final /*value*/ class InternetTime
         && date.equals(it.date);
   }
 
+  /// Compares this date-time to another date-time.  The comparison is based on the local date,
+  /// then the cumulative centibeats elapsed since midnight.  This comparison is consistent with
+  /// `equals()`.
+  ///
+  /// @param other the other date-time to compare to
+  /// @return the comparator value: negative if less, positive if greater
   @Override
   public int compareTo(InternetTime other) {
     requireNonNull(other);
@@ -159,44 +306,64 @@ public final /*value*/ class InternetTime
     return val;
   }
 
+  /// Outputs this date-time as a `String` suitable for debugging.
+  ///
+  /// The format of the output is not specified and is subject to change between revisions.
+  ///
+  /// @return a string representation of this `InternetTime` date and time
   @Override
   public String toString() {
     int partialBeats = getCentibeatOfBeat();
     if (0 == partialBeats) {
-      return String.format("%s@%03d", toLocalDate(), getBeat());
+      return String.format("%s @%03d", toLocalDate(), getBeat());
     } else {
-      return String.format("%s@%03d.%02d", toLocalDate(), getBeat(), partialBeats);
+      return String.format("%s @%03d.%02d", toLocalDate(), getBeat(), partialBeats);
     }
   }
 
+  /// {@return the year field as a primitive `int` value}
+  ///
+  /// The year returned by this method is proleptic as per `get(YEAR)`. To obtain the year-of-era,
+  /// use `get(YEAR_OF_ERA)`.
   public int getYear() {
     return date.getYear();
   }
 
+  /// {@return the month-of-year field using the `Month` enum}
+  ///
+  /// The enum provides the primitive [int value][Month#getValue], if required.
   public Month getMonth() {
     return date.getMonth();
   }
 
+  /// {@return the day-of-month field as a primitive `int` value, from 1 to 31}
   public int getDayOfMonth() {
     return date.getDayOfMonth();
   }
 
+  /// {@return the day-of-year field as a primitive `int` value, from 1 to 365 (366 in leap years)}
   public int getDayOfYear() {
     return date.getDayOfYear();
   }
 
+  /// {@return the day-of-week field using the `DayOfWeek` enum}
+  ///
+  /// The enum provides the primitive [int value][DayOfWeek#getValue], if required.
   public DayOfWeek getDayOfWeek() {
     return date.getDayOfWeek();
   }
 
+  /// {@return the beat-of-day field as a primitive `int` value, from 0 to 999}
   public int getBeat() {
     return centibeatOfDay / CENTIBEATS_PER_BEAT;
   }
 
+  /// {@return the centibeat-of-day field as a primitive `int` value, from 0 to 99,999}
   public int getCentibeatOfDay() {
     return centibeatOfDay;
   }
 
+  /// {@return the centibeat-of-beat field as a primitive `int` value, from 0 to 99}
   public int getCentibeatOfBeat() {
     return centibeatOfDay % CENTIBEATS_PER_BEAT;
   }
@@ -209,23 +376,43 @@ public final /*value*/ class InternetTime
 
   // <editor-fold desc="Type Conversion Methods" defaultstate="collapsed"> -----------------------
 
+  /// Converts this date-time to an `Instant`
+  /// @return an `Instant` representing the same instant on the time-line
   public Instant toInstant() {
     var dateEpochSecond = toLocalDate().toEpochSecond(LocalTime.MIDNIGHT, ZONE);
     return Instant.ofEpochMilli(millisecondOfDay() + TimeUnit.SECONDS.toMillis(dateEpochSecond));
   }
 
+  /// Converts this date-time to an `OffsetDateTime`.
+  ///
+  /// The produced time is always in the time-zone offset UTC+1, but it can be
+  /// [separately converted][OffsetDateTime#withOffsetSameInstant] to a date-time in another
+  /// zone given the other zone's offset.
+  ///
+  /// @return an `OffsetDateTime` representing the same instant on the time-line
   public OffsetDateTime toOffsetDateTime() {
     return OffsetDateTime.of(toLocalDate(), toLocalTime(), ZONE);
   }
 
+  /// Converts this date-time to a `ZonedDateTime`.
+  ///
+  /// The produced time is always in the time-zone offset UTC+1, but it can be
+  /// [separately converted][ZonedDateTime#withZoneSameInstant] to a date-time in another
+  /// zone given the other zone's [ZoneId].
+  ///
+  /// @return a `ZonedDateTime` representing the same instant on the time-line
   public ZonedDateTime toZonedDateTime() {
     return ZonedDateTime.of(toLocalDate(), toLocalTime(), ZONE);
   }
 
+  /// Gets the local date-time in the *Internet Time* zone.
+  /// @return a `LocalDateTime` representing the date-time in the *Internet Time* UTC+1 offset
   public LocalDateTime toLocalDateTime() {
     return LocalDateTime.of(toLocalDate(), toLocalTime());
   }
 
+  /// Gets the local date in the *Internet Time* zone.
+  /// @return a `LocalDate` representing the date in the *Internet Time* UTC+1 offset
   public LocalDate toLocalDate() {
     return date;
   }
@@ -234,14 +421,42 @@ public final /*value*/ class InternetTime
     return LocalTime.ofNanoOfDay(TimeUnit.MILLISECONDS.toNanos(millisecondOfDay()));
   }
 
+  /// Gets the *Internet Time* ISO time-of-day without the date.
+  ///
+  /// The produced time is always in the time-zone offset UTC+1, but it can be
+  /// [separately converted][OffsetTime#withOffsetSameInstant(ZoneOffset)] to the time in another
+  /// zone given the other zone's offset.  These values are useful for time-only display purposes
+  /// where the contextual date (if any) is handled separately.
+  ///
+  /// @return an `OffsetTime` representing the time-of-day in the *Internet Time* UTC+1 offset
   public OffsetTime toOffsetTime() {
     return OffsetTime.of(toLocalTime(), ZONE);
   }
 
+  /// Equivalent to `timeOfBeat(beats, 0)`.
+  /// @see #timeOfBeat(int, int)
+  ///
+  /// @param beats time of day in whole *.beats*, from 0 to 999, inclusive
+  /// @return a standard hour, minute, second, and millisecond representation of the time
+  ///     in the UTC+1 time-zone
+  /// @throws DateTimeException if input value is out of range
   public static OffsetTime timeOfBeat(int beats) {
     return timeOfBeat(beats, 0);
   }
 
+  /// Produces an `OffsetTime` value for the given *.beat* and fractional portion.
+  ///
+  /// The produced time is always in the time-zone offset UTC+1, but it can be
+  /// [separately converted][OffsetTime#withOffsetSameInstant(ZoneOffset)] to the time in another
+  /// zone given the other zone's offset.  These values are useful for time-only display purposes
+  /// where the contextual date (if any) is handled separately.
+  ///
+  /// @param beats time of day in whole *.beats*, from 0 to 999, inclusive
+  /// @param hundredthsOfBeat partial *.beat*, in centibeats elapsed since the beginning of `beats`,
+  ///     from 0 to 99, inclusive
+  /// @return a standard hour, minute, second, and millisecond representation of the time
+  ///     in the UTC+1 time-zone
+  /// @throws DateTimeException if any input values are out of range
   public static OffsetTime timeOfBeat(int beats, int hundredthsOfBeat) {
     long msOfDay = beatsToMillisOfDay(beats, hundredthsOfBeat);
     int totalSec = (int) (msOfDay / 1000);
@@ -262,18 +477,36 @@ public final /*value*/ class InternetTime
 
   // <editor-fold desc="Alignment Methods" defaultstate="collapsed"> -----------------------------
 
+  /// Aligns a date-time value of another type to the first millisecond-of-day of its equivalent
+  /// *Internet Time* value.  Supported `Temporal` types must at minimum allow querying and
+  /// adjusting the [millisecond-of-day][ChronoField#MILLI_OF_DAY] field. Date-only values, such
+  /// as `LocalDate`, are not supported.
+  ///
+  /// The alignment resolution, to the *.beat* or *centibeat*, is selected by specifying one of
+  /// the [InternetTimeField] enum instances.  For the purposes of this operation, the field
+  /// [InternetTimeField#CENTIBEAT_OF_BEAT] aligns to the same millisecond as
+  /// [InternetTimeField#CENTIBEAT_OF_DAY].
+  ///
+  /// @param <R> type of `Temporal` value to align and return
+  /// @param field resolution to use for alignment
+  /// @param temporal the date-time value from which to derive the aligned result
+  /// @return a value at or just before `temporal`, and of the same type, aligned to the beginning
+  ///     millisecond-of-day at the given field resolution of *Internet Time*
+  /// @throws UnsupportedTemporalTypeException if the `temporal` value type is not supported
   public static <R extends Temporal> R toStartOf(InternetTimeField field, R temporal) {
     requireNonNull(field, "field");
     TemporalLongToObj<Temporal> factory;
     long millis;
     switch (requireNonNull(temporal, "temporal")) {
-      case InternetTime it when 0 == it.getCentibeatOfBeat() || CENTIBEAT_OF_DAY.equals(field) -> {
+      case InternetTime it when
+          0 == it.getCentibeatOfBeat() || CENTIBEATS.equals(field.getBaseUnit()) -> {
         return temporal; // under these conditions, already aligned to the requested field
       }
       case Instant i -> {
-        long epochMillis = i.toEpochMilli();
-        long millisOfDay = epochMillis % MILLIS_PER_DAY;
-        millis = epochMillis - millisOfDay + field.truncate(millisOfDay);
+        var odt = i.atOffset(ZONE);
+        millis = field.truncate(odt.getLong(MILLI_OF_DAY));
+        millis = (millis % 1000)
+            + TimeUnit.SECONDS.toMillis(odt.with(MILLI_OF_DAY, millis).toEpochSecond());
         factory = (__, val) -> Instant.ofEpochMilli(val);
       }
       default -> {
@@ -289,16 +522,19 @@ public final /*value*/ class InternetTime
     return r;
   }
 
+  /// Creates an `OffsetDateTime` at the nearest whole-second boundary. All smaller units, such as
+  /// millisecond-of-second, etc., will be zero(0).
+  ///
+  /// Within a day, only 0.8% of `InternetTime` values align naturally on a whole-second boundary.
+  /// The nearest second can occur *before or after* this `InternetTime` value on the time line.
+  ///
+  /// @return an `OffsetDateTime` near the current instant represented by this `InternetTime`, but
+  ///     aligned on a whole-second (second-of-day) boundary
   public OffsetDateTime toNearestSecond() {
     var odt = toOffsetDateTime();
-    long msOfDay = odt.get(MILLI_OF_DAY);
-    long remainder = msOfDay % 1000;
-    msOfDay += (Long.signum(499 - remainder) >>> 31) * 1000 - remainder;
-    if (msOfDay >= MILLIS_PER_DAY) {
-      odt = odt.plusSeconds(1);
-      msOfDay = 0;
-    }
-    return odt.with(MILLI_OF_DAY, msOfDay);
+    int remainder = odt.get(MILLI_OF_SECOND);
+    int adjustment = (Long.signum(499 - remainder) >>> 31) * 1000 - remainder;
+    return odt.plusNanos(TimeUnit.MILLISECONDS.toNanos(adjustment));
   }
 
   // </editor-fold>
@@ -310,7 +546,7 @@ public final /*value*/ class InternetTime
     return switch (field) {
       case null -> false;
       case InternetTimeField __ -> true;
-      case ChronoField cf -> ANALOG.isSupported(cf);
+      case ChronoField cf -> OffsetDateTime.MIN.isSupported(cf); // this should behave like an ODT
       default -> field.isSupportedBy(this);
     };
   }
@@ -341,20 +577,21 @@ public final /*value*/ class InternetTime
   @Override
   public long getLong(TemporalField field) {
     return switch (field) {
-      case InternetTimeField itf -> getFieldAsLong(itf);
-      case ChronoField cf -> getFieldAsLong(cf);
+      case InternetTimeField itf -> getLong(itf);
+      case ChronoField cf -> getLong(cf);
       default -> field.getFrom(this);
     };
   }
 
-  private long getFieldAsLong(InternetTimeField field) {
+  long getLong(InternetTimeField field) {
     return switch (field) {
-      case CENTIBEAT_OF_DAY -> getCentibeatOfDay();
       case BEAT_OF_DAY -> getBeat();
+      case CENTIBEAT_OF_DAY -> getCentibeatOfDay();
+      case CENTIBEAT_OF_BEAT -> getCentibeatOfBeat();
     };
   }
 
-  private long getFieldAsLong(ChronoField field) {
+  private long getLong(ChronoField field) {
     return switch (field) {
       case NANO_OF_DAY -> millisecondOfDay() * 1_000_000;
 
@@ -362,8 +599,7 @@ public final /*value*/ class InternetTime
 
       case OFFSET_SECONDS -> ZONE.getTotalSeconds();
 
-      case INSTANT_SECONDS ->
-          date.toEpochSecond(LocalTime.MIDNIGHT, ZONE) + getFieldAsLong(SECOND_OF_DAY);
+      case INSTANT_SECONDS -> date.toEpochSecond(LocalTime.MIDNIGHT, ZONE) + getLong(SECOND_OF_DAY);
 
       case MILLI_OF_DAY -> millisecondOfDay();
 
@@ -373,11 +609,11 @@ public final /*value*/ class InternetTime
 
       case HOUR_OF_DAY -> millisecondOfDay() / (60 * 60_000);
 
-      case CLOCK_HOUR_OF_DAY -> { var hr = getFieldAsLong(HOUR_OF_DAY); yield 0 == hr ? 24 : hr; }
+      case CLOCK_HOUR_OF_DAY -> { var hr = getLong(HOUR_OF_DAY); yield 0 == hr ? 24 : hr; }
 
-      case HOUR_OF_AMPM -> getFieldAsLong(HOUR_OF_DAY) % 12;
+      case HOUR_OF_AMPM -> getLong(HOUR_OF_DAY) % 12;
 
-      case CLOCK_HOUR_OF_AMPM -> { var hr = getFieldAsLong(HOUR_OF_AMPM); yield 0 == hr ? 12 : hr; }
+      case CLOCK_HOUR_OF_AMPM -> { var hr = getLong(HOUR_OF_AMPM); yield 0 == hr ? 12 : hr; }
 
       case AMPM_OF_DAY -> {
         // if time is before (1ms before Noon) then signum will be -1, negated -> +1, and shift -> 0
@@ -414,7 +650,9 @@ public final /*value*/ class InternetTime
     return switch (unit) {
       case null -> false;
       case InternetTimeUnit __ -> true;
-      case ChronoUnit cu -> cu.ordinal() >= ChronoUnit.MILLIS.ordinal() && ANALOG.isSupported(cu);
+      case ChronoUnit cu ->
+        cu.ordinal() >= ChronoUnit.MILLIS.ordinal() // does not support finer resolution than ms
+        && OffsetDateTime.MIN.isSupported(cu); // otherwise this should behave like OffsetDateTime
       default -> unit.isSupportedBy(this);
     };
   }
@@ -460,6 +698,8 @@ public final /*value*/ class InternetTime
       return switch (itf) {
         case BEAT_OF_DAY -> new InternetTime(date, itfValue * CENTIBEATS_PER_BEAT);
         case CENTIBEAT_OF_DAY -> new InternetTime(date, itfValue);
+        case CENTIBEAT_OF_BEAT ->
+          new InternetTime(date, getCentibeatOfDay() - getCentibeatOfBeat() + itfValue);
       };
     }
     if (field instanceof ChronoField cf) {

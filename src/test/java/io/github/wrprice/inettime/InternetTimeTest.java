@@ -91,7 +91,7 @@ public class InternetTimeTest {
     var it2 = InternetTime.of(cityODT.toLocalDate(), 0, 0, cityOffset); // local date at beat @000
     assertEquals(it, it2, "created from localdate + offset");
 
-    assertEquals("2025-10-12@000", it.toString(), "toString");
+    assertEquals("2025-10-12 @000", it.toString(), "toString");
     assertEquals(0, it.getBeat(), "beat");
     assertEquals(0, it.getCentibeatOfDay(), "centibeat");
     assertEquals(0, it.getCentibeatOfBeat(), "centibeat-of-beat");
@@ -273,10 +273,10 @@ public class InternetTimeTest {
   void toStringFormat() {
     var date = LocalDate.now();
     it = InternetTime.of(date, 234, 56, InternetTime.ZONE);
-    assertEquals(date + "@234.56", it.toString(), "with fractional beats");
+    assertEquals(date + " @234.56", it.toString(), "with fractional beats");
 
     it = it.with(BEAT_OF_DAY, 789);
-    assertEquals(date + "@789", it.toString(), "exact whole beats");
+    assertEquals(date + " @789", it.toString(), "exact whole beats");
   }
 
   @ParameterizedTest
@@ -325,12 +325,16 @@ public class InternetTimeTest {
   @Test
   void toStartOfBeatFromInternetTime() {
     assertSame(it, InternetTime.toStartOf(CENTIBEAT_OF_DAY, it), "always centibeat-aligned");
+
     var it2 = InternetTime.of(it.toLocalDate(), Math.max(1, it.getBeat()), 0, InternetTime.ZONE);
     assertSame(it2, InternetTime.toStartOf(BEAT_OF_DAY, it2), "any beat without fractional part");
 
     var it3 = InternetTime.of(it.toLocalDate(), Math.max(1, it.getBeat()), 67, InternetTime.ZONE);
-    assertInstanceOf(InternetTime.class, it3);
-    assertEquals(it2, InternetTime.toStartOf(BEAT_OF_DAY, it3), "non-aligned");
+    var it4 = InternetTime.toStartOf(BEAT_OF_DAY, it3);
+    assertInstanceOf(InternetTime.class, it4);
+    assertEquals(Math.max(1, it.getBeat()), it4.getBeat(), "beat value");
+    assertEquals(0, it4.getCentibeatOfBeat(), "centibeat-of-beat value");
+    assertEquals(it2, it4, "non-aligned");
   }
 
   @Test
@@ -342,6 +346,20 @@ public class InternetTimeTest {
     var in2 = InternetTime.toStartOf(BEAT_OF_DAY, it.toInstant());
     assertThat("beat-aligned vs centi-aligned", in2, lessThanOrEqualTo(in));
     assertEqualsWithTolerance(BEATS, in, in2, "delta w/in 1 beat");
+  }
+
+  @Test
+  void toStartOfBeatFromOffsetDateTime() {
+    var odt = InternetTime.toStartOf(CENTIBEAT_OF_DAY, it.toOffsetDateTime());
+    assertInstanceOf(OffsetDateTime.class, odt);
+    assertEquals(it.toInstant(), odt.toInstant(), "instant exact");
+    int beat = odt.get(BEAT_OF_DAY);
+
+    var odt2 = InternetTime.toStartOf(BEAT_OF_DAY, it.toOffsetDateTime());
+    assertThat("beat-aligned vs centi-aligned", odt2, lessThanOrEqualTo(odt));
+    assertEqualsWithTolerance(BEATS, odt, odt2, "delta w/in 1 beat");
+    assertEquals(beat, odt2.get(BEAT_OF_DAY), "beat value");
+    assertEquals(0, odt2.get(CENTIBEAT_OF_DAY) % CENTIBEATS_PER_BEAT, "centibeat-of-beat value");
   }
 
   @Test
@@ -383,7 +401,11 @@ public class InternetTimeTest {
     for (var cf : ChronoField.values()) {
       assertTrue(it.isSupported(cf), cf.name());
     }
-    assertFalse(it.isSupported(PrivateField.CENTIBEAT_OF_BEAT), "other field type");
+
+    var otherType = mock(TemporalField.class);
+    when(otherType.isSupportedBy(it)).thenReturn(false);
+    assertFalse(it.isSupported(otherType), "other field type");
+    verify(otherType).isSupportedBy(it);
   }
 
   @Test
@@ -396,10 +418,11 @@ public class InternetTimeTest {
     for (var cf : ChronoField.values()) {
       assertEquals(odt.range(cf), it.range(cf), cf.name());
     }
-    assertEquals(
-        PrivateField.CENTIBEAT_OF_BEAT.range(),
-        it.range(PrivateField.CENTIBEAT_OF_BEAT),
-        "other type");
+
+    var otherRange = ValueRange.of(-1, +1);
+    var otherType = mock(TemporalField.class);
+    when(otherType.rangeRefinedBy(it)).thenReturn(otherRange);
+    assertEquals(otherRange, it.range(otherType), "other field type");
   }
 
   @Test
@@ -522,6 +545,7 @@ public class InternetTimeTest {
     it = InternetTime.of(it.toLocalDate(), 420, 69, InternetTime.ZONE);
     assertEquals(113, it.with(BEAT_OF_DAY, 113).getBeat(), "beat of day");
     assertEquals(70, it.with(CENTIBEAT_OF_DAY, 70).getCentibeatOfDay(), "centibeat of day");
+    assertEquals(70, it.with(CENTIBEAT_OF_BEAT, 70).getCentibeatOfBeat(), "centibeat of beat");
   }
 
   @Test

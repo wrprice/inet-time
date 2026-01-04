@@ -32,6 +32,7 @@ import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 
 /// @author William R. Price
 public class InternetTimeFieldTest {
@@ -39,7 +40,6 @@ public class InternetTimeFieldTest {
 
   @Test
   void invariants() {
-    assertInvariant(InternetTimeField::getRangeUnit, ChronoUnit.DAYS, "getRangeUnit");
     assertInvariant(InternetTimeField::isDateBased, false, "isDateBased");
     assertInvariant(InternetTimeField::isTimeBased, true, "isTimeBased");
     assertComputedInvariant(
@@ -66,6 +66,7 @@ public class InternetTimeFieldTest {
       var expected = switch(field) {
         case BEAT_OF_DAY -> "BeatOfDay";
         case CENTIBEAT_OF_DAY -> "CentibeatOfDay";
+        case CENTIBEAT_OF_BEAT -> "CentibeatOfBeat";
       };
       assertEquals(expected, field.toString(), field.name());
     }
@@ -84,8 +85,21 @@ public class InternetTimeFieldTest {
       var expected = switch(field) {
         case BEAT_OF_DAY -> InternetTimeUnit.BEATS;
         case CENTIBEAT_OF_DAY -> InternetTimeUnit.CENTIBEATS;
+        case CENTIBEAT_OF_BEAT -> InternetTimeUnit.CENTIBEATS;
       };
       assertEquals(expected, field.getBaseUnit(), field.name());
+    }
+  }
+
+  @Test
+  void geRangeUnit() {
+    for (var field : FIELDS) {
+      var expected = switch(field) {
+        case BEAT_OF_DAY -> ChronoUnit.DAYS;
+        case CENTIBEAT_OF_DAY -> ChronoUnit.DAYS;
+        case CENTIBEAT_OF_BEAT -> InternetTimeUnit.BEATS;
+      };
+      assertEquals(expected, field.getRangeUnit(), field.name());
     }
   }
 
@@ -95,6 +109,7 @@ public class InternetTimeFieldTest {
       var expected = switch(field) {
         case BEAT_OF_DAY -> ValueRange.of(0, 999);
         case CENTIBEAT_OF_DAY -> ValueRange.of(0, 999_99);
+        case CENTIBEAT_OF_BEAT -> ValueRange.of(0, 99);
       };
       assertEquals(expected, field.range(), field.name());
     }
@@ -200,32 +215,52 @@ public class InternetTimeFieldTest {
       var expected = switch (field) {
         case BEAT_OF_DAY -> it.getBeat();
         case CENTIBEAT_OF_DAY -> it.getCentibeatOfDay();
+        case CENTIBEAT_OF_BEAT -> it.getCentibeatOfBeat();
       };
       assertEquals(expected, field.getFrom(it), field.name());
     }
   }
 
-  @Test
-  void getFromTemporal() {
+  @ParameterizedTest
+  @EnumSource(mode = EnumSource.Mode.MATCH_ALL)
+  void getFromInstant(InternetTimeField field) {
     long msOfDay = 864 * 12_345L;
-    long utcOffsetSec = -6 * 3600L;
-    long expectedNetMillisOfDay = (msOfDay - ((utcOffsetSec - 3600) * 1000));
-    var temp = makeMockTemporal(msOfDay, utcOffsetSec);
-    for (var field : FIELDS) {
-      var expected = switch (field) {
-        case BEAT_OF_DAY -> expectedNetMillisOfDay / 86400;
-        case CENTIBEAT_OF_DAY -> expectedNetMillisOfDay / 864;
-      };
-      assertEquals(expected, field.getFrom(temp), field.name());
-    }
+    var instant =
+        ZonedDateTime.now(ZoneOffset.ofHours(-6))
+            .with(ChronoField.MILLI_OF_DAY, msOfDay)
+            .toInstant();
+    int utcOffsetSec = -6 * 3600;
+    long expectedNetMillisOfDay = (msOfDay - ((utcOffsetSec - 3600) * 1000L));
+    var expected = switch (field) {
+      case BEAT_OF_DAY -> expectedNetMillisOfDay / 86400;
+      case CENTIBEAT_OF_DAY -> expectedNetMillisOfDay / 864;
+      case CENTIBEAT_OF_BEAT -> expectedNetMillisOfDay / 864 % 100;
+    };
+    assertEquals(expected, field.getFrom(instant));
   }
 
-  private Temporal makeMockTemporal(long milliOfDay, long offsetSec) {
+  @ParameterizedTest
+  @EnumSource(mode = EnumSource.Mode.MATCH_ALL)
+  void getFromTemporal(InternetTimeField field) {
+    long msOfDay = 864 * 12_345L;
+    int utcOffsetSec = -6 * 3600;
+    long expectedNetMillisOfDay = (msOfDay - ((utcOffsetSec - 3600) * 1000L));
+    var temp = makeMockTemporal(msOfDay, utcOffsetSec);
+    var expected = switch (field) {
+      case BEAT_OF_DAY -> expectedNetMillisOfDay / 86400;
+      case CENTIBEAT_OF_DAY -> expectedNetMillisOfDay / 864;
+      case CENTIBEAT_OF_BEAT -> expectedNetMillisOfDay / 864 % 100;
+    };
+    assertEquals(expected, field.getFrom(temp));
+  }
+
+  private Temporal makeMockTemporal(long milliOfDay, int offsetSec) {
     var temporal = mock(Temporal.class);
     when(temporal.isSupported(ChronoField.MILLI_OF_DAY)).thenReturn(true);
     when(temporal.isSupported(ChronoField.OFFSET_SECONDS)).thenReturn(true);
     when(temporal.getLong(ChronoField.MILLI_OF_DAY)).thenReturn(milliOfDay);
-    when(temporal.getLong(ChronoField.OFFSET_SECONDS)).thenReturn(offsetSec);
+    when(temporal.getLong(ChronoField.OFFSET_SECONDS)).thenReturn((long) offsetSec);
+    when(temporal.get(ChronoField.OFFSET_SECONDS)).thenReturn(offsetSec);
     return temporal;
   }
 
@@ -252,36 +287,42 @@ public class InternetTimeFieldTest {
     }
   }
 
-  @Test
-  void adjustInto() {
+  @ParameterizedTest
+  @EnumSource(mode = EnumSource.Mode.MATCH_ALL)
+  void adjustInto(InternetTimeField field) {
     var it = InternetTime.now();
     var odt = it.toOffsetDateTime().withOffsetSameInstant(ZoneOffset.ofHours(-6));
+    var instant = it.toInstant();
     if (it.getBeat() == 123) {
       it = it.plus(1, ChronoUnit.HOURS);
       odt = odt.plus(1, ChronoUnit.HOURS);
+      instant = instant.plus(1, ChronoUnit.HOURS);
     }
     assertEquals(odt.toInstant(), it.toInstant(), "pre-requisite");
 
-    for (var field : FIELDS) {
-      var toSet = switch (field) {
-        case BEAT_OF_DAY -> 123;
-        case CENTIBEAT_OF_DAY -> 123_45;
-      };
-      var newIt = field.adjustInto(it, toSet);
-      var newOdt = field.adjustInto(odt, toSet);
-      assertInstanceOf(InternetTime.class, newIt);
-      assertInstanceOf(OffsetDateTime.class, newOdt);
-      assertNotSame(it, newIt);
-      assertNotSame(odt, newOdt);
-      assertEquals(toSet, newIt.get(field), field + " InternetTime");
-      assertEquals(toSet, newOdt.get(field), field + " OffsetDateTime");
-      assertEquals(it.toLocalDate(), newIt.toLocalDate(), field + " InternetTime -> LocalDate");
-      assertEquals(odt.toLocalDate(), newOdt.toLocalDate(), field + " OffsetDateTime -> LocalDate");
-      assertEquals(
-          newOdt.withOffsetSameInstant(ZoneOffset.UTC).toLocalTime(),
-          newIt.toLocalDateTime().minusHours(1).toLocalTime(),
-          field + " (ODT vs IT) in UTC local time (ignoring date)");
-    }
+    var toSet = switch (field) {
+      case BEAT_OF_DAY -> 123;
+      case CENTIBEAT_OF_DAY -> 123_45;
+      case CENTIBEAT_OF_BEAT -> 67;
+    };
+    var newIt = field.adjustInto(it, toSet);
+    var newOdt = field.adjustInto(odt, toSet);
+    var newInstant = field.adjustInto(instant, toSet);
+    assertInstanceOf(InternetTime.class, newIt);
+    assertInstanceOf(OffsetDateTime.class, newOdt);
+    assertInstanceOf(Instant.class, newInstant);
+    assertNotEquals(it, newIt);
+    assertNotEquals(odt, newOdt);
+    assertNotEquals(instant, newInstant);
+    assertEquals(toSet, newIt.get(field), "InternetTime");
+    assertEquals(toSet, newOdt.get(field), "OffsetDateTime");
+    assertEquals(toSet, newInstant.get(field), "InternetTime");
+    assertEquals(it.toLocalDate(), newIt.toLocalDate(), "InternetTime -> LocalDate");
+    assertEquals(odt.toLocalDate(), newOdt.toLocalDate(), "OffsetDateTime -> LocalDate");
+    assertEquals(
+        newOdt.withOffsetSameInstant(ZoneOffset.UTC).toLocalTime(),
+        newIt.toLocalDateTime().minusHours(1).toLocalTime(),
+        "(ODT vs IT) in UTC local time (ignoring date)");
   }
 
   @Test
