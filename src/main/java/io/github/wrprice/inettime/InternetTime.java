@@ -89,6 +89,13 @@ import java.util.function.UnaryOperator;
 /// predefined formats are available as `static final` fields on this class.  To build your own
 /// custom format involving *.beats*, see the [#beatFormatter] method.
 ///
+/// When possible, prefer using the provided convenience methods for formatting and parsing
+/// *Internet Time* values:
+///
+/// - [#format(DateTimeFormatter)]
+/// - [#parse(CharSequence, DateTimeFormatter)]
+/// - [#parse(CharSequence, DateTimeFormatter, LocalDate)]
+///
 /// -----
 ///
 /// **Implementation notes:**  
@@ -248,12 +255,17 @@ public final /*value*/ class InternetTime
   /// `java.time` date-time types supporting time-zone offset information, falling back to an
   /// `Instant` if necessary.
   ///
-  /// **Local** date-time values, date-only, and time-only values are not supported, because a
-  /// representation in *Internet Time* requires determining the offset relative to UTC+1.
+  /// When using this method with [DateTimeFormatter#parse(CharSequence, TemporalQuery)], the
+  /// behavior will match this class' [#parse(CharSequence, DateTimeFormatter)] method.  Consider
+  /// using that method directly, instead.  For other use cases the following restrictions apply:
   ///
-  /// Attempting to "round-trip" the returned [InternetTime] [back to][#toInstant()] an `Instant`
-  /// will often result in a *different value* (+/- 864ms) because of the precision limitations of
-  /// `InternetTime`.
+  /// Local date-time values and any date- or time-only values are not supported, because a
+  /// representation in *Internet Time* requires determining a date, time, and its offset relative
+  /// to UTC+1.
+  ///
+  /// Attempting to "round-trip" the resulting [InternetTime] back to the original `Temporal` type
+  /// will often result in a *different value* (+/- 864ms) because of the alignment and precision
+  /// limitations of `InternetTime`.
   ///
   /// @param accessor the temporal object to convert
   /// @return a date-time aligned to *Internet Time*
@@ -264,8 +276,8 @@ public final /*value*/ class InternetTime
       case InternetTime it -> it;
       case OffsetDateTime dt -> new InternetTime(dt.withOffsetSameInstant(ZONE).toLocalDateTime());
       case ZonedDateTime dt -> new InternetTime(dt.withZoneSameInstant(ZONE).toLocalDateTime());
-      case TemporalAccessor ta when
-          DateTimeFormatter.class.getPackage().equals(ta.getClass().getPackage()) -> fromParsed(ta);
+      case TemporalAccessor ta when isSamePackage(DateTimeFormatter.class, ta.getClass()) ->
+          fromParsed(ta, null); // j.t.format.Parsed is not public
       default -> {
         try {
           yield ofInstant(Instant.from(accessor));
@@ -274,6 +286,10 @@ public final /*value*/ class InternetTime
         }
       }
     };
+  }
+
+  private static boolean isSamePackage(Class<?> c1, Class<?> c2) {
+    return c1.getPackage().equals(c2.getPackage());
   }
 
   private static DateTimeException cannotDeriveFrom(TemporalAccessor accessor) {
@@ -380,12 +396,40 @@ public final /*value*/ class InternetTime
   /// [Internet Time zone][#ZONE] (UTC+1).  Formatters that only support dates without a time
   /// component are not supported.
   ///
+  /// Formatters that only support time values (without a date), whether local or with an offset,
+  /// are not supported by this method and will throw an exception.  To support parsing formats
+  /// which only result in time values, use [#parse(CharSequence, DateTimeFormatter, LocalDate)].
+  ///
   /// @param text to be parsed
   /// @param formatter the formatter to use
   /// @return the parsed Internet Time
-  /// @throws DateTimeException if an error occurs during printing
+  /// @throws DateTimeException if an error occurs during parsing
   public static InternetTime parse(CharSequence text, DateTimeFormatter formatter) {
-    return requireNonNull(formatter, "formatter").parse(text, InternetTime::fromParsed);
+    return requireNonNull(formatter, "formatter")
+        .parse(text, ta -> InternetTime.fromParsed(ta, null));
+  }
+
+  /// Obtains an instance of `InternetTime` from a text string using a specific formatter.
+  ///
+  /// Formatters that only support *local* date-time values will be assumed to occur in the
+  /// [Internet Time zone][#ZONE] (UTC+1).  Formatters that only support dates without a time
+  /// component are not supported.
+  ///
+  /// Formatters that only support time values (without a date), whether local or with an offset,
+  /// will use the provided `defaultDate` as the date in *Internet Time* (prior to applying any
+  /// parsed offset).  The default date will be ignored for formatters able to parse ISO dates.
+  ///
+  /// @param text to be parsed
+  /// @param formatter the formatter to use
+  /// @param defaultDate reference date used as the *Internet Time* date when the formatter does not
+  ///     otherwise parse or provide a date
+  /// @return the parsed Internet Time
+  /// @throws DateTimeException if an error occurs during parsing
+  public static InternetTime parse(
+      CharSequence text, DateTimeFormatter formatter, LocalDate defaultDate) {
+    requireNonNull(defaultDate, "defaultDate");
+    return requireNonNull(formatter, "formatter")
+        .parse(text, ta -> InternetTime.fromParsed(ta, defaultDate));
   }
 
   /// Formats this Internet Time value using the provided formatter.
@@ -422,6 +466,10 @@ public final /*value*/ class InternetTime
   /// joining with a date format, it can be ambiguous whether the rendered date is the standard
   /// *Internet Time* date or the end-user's local date.  Including the UTC offset, such as with
   /// [DateTimeFormatter#ISO_OFFSET_DATE], is one possible solution (see: [#OFFSET_DATE_BEATS]).
+  ///
+  /// **Important:** if parsing the resulting time format directly (without a date), use
+  /// [#parse(CharSequence, DateTimeFormatter, LocalDate)] and provide a default date. The other
+  /// `parse` method signature(s) or [#from] will throw without an available reference date.
   ///
   /// @param style `SHORT` and `MEDIUM` display whole *.beat* values without or with a leading `@`
   ///     symbol, respectively.  `LONG` and `FULL` are similar but add fractional centibeats.
@@ -462,12 +510,12 @@ public final /*value*/ class InternetTime
         .toFormatter();
   }
 
-  private static InternetTime fromParsed(TemporalAccessor ta) {
+  private static InternetTime fromParsed(TemporalAccessor ta, LocalDate defaultDate) {
     LocalDate date;
     if (ta.isSupported(DAY_OF_MONTH) && ta.isSupported(MONTH_OF_YEAR) && ta.isSupported(YEAR)) {
       date = LocalDate.of(ta.get(YEAR), ta.get(MONTH_OF_YEAR), ta.get(DAY_OF_MONTH));
     } else {
-      date = LocalDate.EPOCH;
+      date = defaultDate;
     }
     var offset = ta.isSupported(OFFSET_SECONDS)
         ? ZoneOffset.ofTotalSeconds(ta.get(OFFSET_SECONDS))
@@ -492,6 +540,10 @@ public final /*value*/ class InternetTime
               : 0;
       return ofInstant(Instant.ofEpochMilli(TimeUnit.SECONDS.toMillis(instantSecs) + msPart));
     } else {
+      date = null;
+      centibeats = -1;
+    }
+    if (null == date) {
       throw cannotDeriveFrom(ta);
     }
     date = normalizeLocalDate(date, offset, centibeats / CENTIBEATS_PER_BEAT, 0 /* fractional */);

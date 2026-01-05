@@ -729,11 +729,16 @@ public class InternetTimeTest {
     "FULL,      @456, 456,  0",
   })
   void parseBeatFormats(
-      FormatStyle style, String input, int expectBeats, int expectCenti) {
+      FormatStyle style, String str, int expectBeats, int expectCenti) {
     var fmt = InternetTime.beatFormatter(style);
     var expect = InternetTime.of(LocalDate.EPOCH, expectBeats, expectCenti, InternetTime.ZONE);
-    assertEquals(expect, InternetTime.parse(input, fmt), "IT.parse(str, fmt)");
-    assertEquals(expect, fmt.parse(input, InternetTime::from), "fmt.parse(str, IT::from)");
+    assertEquals(expect, InternetTime.parse(str, fmt, LocalDate.EPOCH), "IT.parse(str, fmt, ld)");
+
+    // Theese throw when the parsed format cannot provide a date:
+    assertThrows(
+        DateTimeException.class, () -> InternetTime.parse(str, fmt), "IT.parse(str, fmt)");
+    assertThrows(
+        DateTimeException.class, () -> fmt.parse(str, InternetTime::from), "fmt.parse(str,::from)");
   }
 
   @Test
@@ -752,14 +757,67 @@ public class InternetTimeTest {
             str.replace("Z", "-01:00"),
             DateTimeFormatter.ISO_OFFSET_DATE_TIME),
         "ISO_OFFSET_DATE_TIME");
+  }
 
-    str = "12:34:56.7-00:00";
-    it = InternetTime.of(LocalDate.EPOCH, 565, 93, InternetTime.ZONE);
-    assertEquals(it, InternetTime.parse(str, DateTimeFormatter.ISO_OFFSET_TIME), "ISO_OFFSET_TIME");
+  @Test
+  void parseStandardFormatsIgnoresDefaultDate() {
+    var str = "2026-01-03T12:34:56.7Z";
+    var defaultDate = LocalDate.MIN;
+    it = InternetTime.of(LocalDate.of(2026, 01, 03), 565, 93, InternetTime.ZONE);
+    assertEquals(
+        it,
+        InternetTime.parse(str, DateTimeFormatter.ISO_INSTANT, defaultDate),
+        "ISO_INSTANT");
+    assertEquals(
+        it,
+        InternetTime.parse(str, DateTimeFormatter.ISO_DATE_TIME, defaultDate),
+        "ISO_DATE_TIME");
     assertEquals(
         it.minus(1, ChronoUnit.HOURS),
-        InternetTime.parse(str.replace("-00:00", ""), DateTimeFormatter.ISO_TIME), "ISO_TIME");
+        InternetTime.parse(
+            str.replace("Z", ""), DateTimeFormatter.ISO_LOCAL_DATE_TIME, defaultDate),
+        "ISO_LOCAL_DATE_TIME");
+    assertEquals(
+        it.plus(4167, CENTIBEATS),
+        InternetTime.parse(
+            str.replace("Z", "-01:00"), DateTimeFormatter.ISO_OFFSET_DATE_TIME, defaultDate),
+        "ISO_OFFSET_DATE_TIME");
+  }
 
+  @Test
+  void parseFormatsWithTimeNoDate() {
+    var str = "12:34:56.7-00:00";
+    it = InternetTime.of(LocalDate.EPOCH, 565, 93, InternetTime.ZONE);
+    assertThrows(
+        DateTimeException.class,
+        () -> InternetTime.parse(str, DateTimeFormatter.ISO_OFFSET_TIME),
+        "ISO_OFFSET_TIME");
+    assertThrows(
+        DateTimeException.class,
+        () -> InternetTime.parse(str.replace("-00:00", ""), DateTimeFormatter.ISO_TIME),
+        "ISO_TIME");
+  }
+
+  @Test
+  void parseFormatsWithTimeGivenDefaultDate() {
+    var str = "12:34:56.7-00:00";
+    var date = LocalDate.EPOCH;
+    it = InternetTime.of(date, 565, 93, InternetTime.ZONE);
+    assertEquals(
+        it, InternetTime.parse(str, DateTimeFormatter.ISO_OFFSET_TIME, date), "ISO_OFFSET_TIME");
+    assertEquals(
+        it.minus(1, ChronoUnit.HOURS),
+        InternetTime.parse(str.replace("-00:00", ""), DateTimeFormatter.ISO_TIME, date),
+        "ISO_TIME");
+
+    assertThrows(
+        NullPointerException.class,
+        () -> InternetTime.parse(str, DateTimeFormatter.ISO_OFFSET_DATE, null),
+        "null default date");
+  }
+
+  @Test
+  void parseFormatsWithDateNoTime() {
     assertThrows(
         DateTimeException.class,
         () -> InternetTime.parse(
