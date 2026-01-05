@@ -57,7 +57,7 @@ Download using your build or package management tooling from [Maven Central][cen
 
 | Group               | Artifact ID | Version  |
 | ------------------- | ----------- | -------- |
-| `io.github.wrprice` | `inet-time` | `0.4.20` |
+| `io.github.wrprice` | `inet-time` | `0.8.64` |
 
 This library supports the Java module system and exports its public classes from a single package
 named the same as the module itself: `io.github.wrprice.inettime`.  If your project is *not*
